@@ -1,0 +1,15 @@
+Suspicious IP: 185.XXX.XXX.XXX - Reasons: Frequency of Connections: (56497 x), IP Reuse & Repeated Connections: (56413 x), P2P C2 Communications: (56418 x), Packet Size Anomalies: (55507 x) - Risk Factor: 89.33%
+Suspicious IP: 185.XXX.XXX.XXX - Reasons: Frequency of Connections: (83373 x), IP Reuse & Repeated Connections: (83377 x), Packet Size Anomalies: (82383 x) - Risk Factor: 84.43%
+Suspicious IP: 185.XXX.XXX.XXX - Reasons: Frequency of Connections: (33394 x), IP Reuse & Repeated Connections: (33295 x), P2P C2 Communications: (33300 x), Packet Size Anomalies: (32404 x) - Risk Factor: 79.39%
+Suspicious IP: 212.XXX.XXX.XXX - Reasons: Frequency of Connections: (4304 x), IP Reuse & Repeated Connections: (4243 x), P2P C2 Communications: (4308 x), Packet Size Anomalies: (3314 x) - Risk Factor: 64.9%
+Suspicious IP: 212.XXX.XXX.XXX - Reasons: Frequency of Connections: (1738 x), IP Reuse & Repeated Connections: (1745 x), Packet Size Anomalies: (748 x) - Risk Factor: 54.2%
+Suspicious IP: 45.XXX.XXX.XXX - Reasons: Frequency of Connections: (1629 x), IP Reuse & Repeated Connections: (1636 x), Packet Size Anomalies: (639 x) - Risk Factor: 53.17%
+Suspicious IP: 175.XXX.XXX.XXX - Reasons: Frequency of Connections: (1359 x), IP Reuse & Repeated Connections: (1366 x), Packet Size Anomalies: (369 x) - Risk Factor: 52.1%
+Suspicious IP: 80.XXX.XXX.XXX - Reasons: Frequency of Connections: (1241 x), IP Reuse & Repeated Connections: (1248 x), Packet Size Anomalies: (251 x) - Risk Factor: 52.07%
+Suspicious IP: 175.XXX.XXX.XXX - Reasons: Frequency of Connections: (1194 x), IP Reuse & Repeated Connections: (1201 x), Packet Size Anomalies: (204 x) - Risk Factor: 51.06%
+Suspicious IP: 185.XXX.XXX.XXX - Reasons: Frequency of Connections: (227 x), IP Reuse & Repeated Connections: (218 x), P2P C2 Communications: (205 x) - Risk Factor: 50.05%
+Suspicious IP: 185.XXX.XXX.XXX - Reasons: Frequency of Connections: (168 x), IP Reuse & Repeated Connections: (162 x), P2P C2 Communications: (147 x) - Risk Factor: 49.04%
+Suspicious IP: 175.XXX.XXX.XXX - Reasons: Frequency of Connections: (1041 x), IP Reuse & Repeated Connections: (1048 x), Packet Size Anomalies: (51 x) - Risk Factor: 48.02%
+Suspicious IP: 2.XXX.XXX.XXX - Reasons: Frequency of Connections: (1006 x), IP Reuse & Repeated Connections: (1013 x), Packet Size Anomalies: (16 x) - Risk Factor: 48.01%
+Suspicious IP: 45.XXX.XXX.XXX - Reasons: Frequency of Connections: (902 x), IP Reuse & Repeated Connections: (909 x) - Risk Factor: 32.01%
+Suspicious IP: 45.XXX.XXX.XXX - Reasons: Frequency of Connections: (822 x), IP Reuse & Repeated Connections: (829 x) - Risk Factor: 30.01%

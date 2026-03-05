@@ -1,0 +1,11 @@
+Suspicious IP: 62.112.xxx.xxx - Reasons: Frequency of Connections: (1 x), P2P C2 Communications: (6 x) - Risk Factor: 0.29%
+Suspicious IP: 31.210.xxx.xxx - Reasons: Frequency of Connections: (1 x), P2P C2 Communications: (6 x) - Risk Factor: 0.29%
+Suspicious IP: 89.38.xxx.xxx - Reasons: P2P C2 Communications: (4 x) - Risk Factor: 0.17%
+Suspicious IP: 190.2.xxx.xxx - Reasons: IP Reuse & Repeated Connections: (1 x) - Risk Factor: 0.04%
+Suspicious IP: 62.204.xxx.xxx - Reasons: P2P C2 Communications: (1 x) - Risk Factor: 0.04%
+Suspicious IP: 178.132.xxx.xxx - Reasons: P2P C2 Communications: (1 x) - Risk Factor: 0.04%
+Suspicious IP: 31.210.xxx.xxx - Reasons: P2P C2 Communications: (1 x) - Risk Factor: 0.04%
+Suspicious IP: 31.210.xxx.xxx - Reasons: P2P C2 Communications: (1 x) - Risk Factor: 0.04%
+Suspicious IP: 185.162.xxx.xxx - Reasons: P2P C2 Communications: (1 x) - Risk Factor: 0.04%
+Suspicious IP: 185.162.xxx.xxx - Reasons: P2P C2 Communications: (1 x) - Risk Factor: 0.04%
+Suspicious IP: 109.236.xxx.xxx - Reasons: P2P C2 Communications: (1 x) - Risk Factor: 0.04%
