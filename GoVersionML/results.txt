@@ -1,0 +1,69 @@
+Scanning ..\Dataconverter\test3_output.json with XGBoost ML Model...
+
+Aggregated Features. Running XGBoost Inference on 15946 unique Source IPs...
+
+[BOTNET DETECTED] IP: 147.32.84.21    | ML Probability:  99.95%
+[BOTNET DETECTED] IP: 147.32.84.94    | ML Probability:  99.75%
+[BOTNET DETECTED] IP: 147.32.84.184   | ML Probability:  99.72%
+[BOTNET DETECTED] IP: 147.32.84.170   | ML Probability:  99.70%
+[BOTNET DETECTED] IP: 147.32.87.249   | ML Probability:  99.43%
+[BOTNET DETECTED] IP: 147.32.84.134   | ML Probability:  99.09%
+[BOTNET DETECTED] IP: 143.161.248.25  | ML Probability:  98.88%
+[BOTNET DETECTED] IP: 199.40.206.187  | ML Probability:  97.90%
+[BOTNET DETECTED] IP: 147.32.86.134   | ML Probability:  96.77%
+[BOTNET DETECTED] IP: 147.32.86.51    | ML Probability:  96.43%
+[BOTNET DETECTED] IP: 147.32.87.7     | ML Probability:  96.20%
+[BOTNET DETECTED] IP: 77.222.236.176  | ML Probability:  95.89%
+[BOTNET DETECTED] IP: 147.32.85.30    | ML Probability:  95.85%
+[BOTNET DETECTED] IP: 147.32.85.42    | ML Probability:  95.27%
+[BOTNET DETECTED] IP: 80.79.159.193   | ML Probability:  93.88%
+[BOTNET DETECTED] IP: 147.32.87.135   | ML Probability:  92.43%
+[BOTNET DETECTED] IP: 80.72.117.144   | ML Probability:  91.98%
+[BOTNET DETECTED] IP: 147.32.85.26    | ML Probability:  91.66%
+[BOTNET DETECTED] IP: 147.32.86.147   | ML Probability:  90.00%
+[BOTNET DETECTED] IP: 147.32.84.171   | ML Probability:  89.66%
+[BOTNET DETECTED] IP: 147.32.87.33    | ML Probability:  89.50%
+[BOTNET DETECTED] IP: 115.64.9.60     | ML Probability:  88.09%
+[BOTNET DETECTED] IP: 147.32.85.119   | ML Probability:  86.49%
+[BOTNET DETECTED] IP: 147.32.84.19    | ML Probability:  85.59%
+[BOTNET DETECTED] IP: 147.32.85.89    | ML Probability:  85.22%
+[BOTNET DETECTED] IP: 147.32.86.99    | ML Probability:  85.04%
+[BOTNET DETECTED] IP: 94.190.193.161  | ML Probability:  84.98%
+[BOTNET DETECTED] IP: 147.32.85.18    | ML Probability:  83.88%
+[BOTNET DETECTED] IP: 147.32.86.111   | ML Probability:  83.51%
+[BOTNET DETECTED] IP: 147.32.84.186   | ML Probability:  83.30%
+[BOTNET DETECTED] IP: 147.32.85.84    | ML Probability:  83.16%
+[BOTNET DETECTED] IP: 147.32.84.165   | ML Probability:  82.39%
+[BOTNET DETECTED] IP: 147.32.86.179   | ML Probability:  81.45%
+[BOTNET DETECTED] IP: 78.135.29.253   | ML Probability:  81.29%
+[BOTNET DETECTED] IP: 125.213.214.50  | ML Probability:  80.86%
+[BOTNET DETECTED] IP: 78.102.12.225   | ML Probability:  77.63%
+[BOTNET DETECTED] IP: 220.181.94.226  | ML Probability:  75.60%
+[BOTNET DETECTED] IP: 147.32.84.215   | ML Probability:  75.40%
+[BOTNET DETECTED] IP: 147.32.84.3     | ML Probability:  75.02%
+[BOTNET DETECTED] IP: 147.32.84.2     | ML Probability:  72.83%
+[BOTNET DETECTED] IP: 147.32.85.74    | ML Probability:  71.02%
+[BOTNET DETECTED] IP: 147.32.85.7     | ML Probability:  70.95%
+[BOTNET DETECTED] IP: 66.249.66.81    | ML Probability:  70.83%
+[BOTNET DETECTED] IP: 195.113.235.89  | ML Probability:  68.21%
+[BOTNET DETECTED] IP: 82.52.247.7     | ML Probability:  67.61%
+[BOTNET DETECTED] IP: 188.247.81.5    | ML Probability:  64.68%
+[BOTNET DETECTED] IP: 147.32.86.23    | ML Probability:  64.64%
+[BOTNET DETECTED] IP: 157.25.200.146  | ML Probability:  61.44%
+[BOTNET DETECTED] IP: 174.95.10.217   | ML Probability:  61.08%
+[BOTNET DETECTED] IP: 147.32.84.17    | ML Probability:  60.80%
+[BOTNET DETECTED] IP: 147.32.87.1     | ML Probability:  56.43%
+[BOTNET DETECTED] IP: 147.32.86.84    | ML Probability:  55.94%
+[BOTNET DETECTED] IP: 147.32.87.2     | ML Probability:  55.10%
+[BOTNET DETECTED] IP: 123.26.255.254  | ML Probability:  52.16%
+
+[Top Benign Background Noise (For Contrast)]
+[BENIGN TRAFFIC ] IP: 194.230.155.29  | ML Probability:  48.97%
+[BENIGN TRAFFIC ] IP: 213.95.169.180  | ML Probability:  48.76%
+[BENIGN TRAFFIC ] IP: 147.32.87.40    | ML Probability:  48.51%
+[BENIGN TRAFFIC ] IP: 82.135.208.240  | ML Probability:  48.14%
+[BENIGN TRAFFIC ] IP: 78.128.202.189  | ML Probability:  47.87%
+
+Done. Processed 50000 records.
+Identified 54 specific Botnet IPs out of 15946 total communicating IPs.
+Execution time: 0.6653 seconds

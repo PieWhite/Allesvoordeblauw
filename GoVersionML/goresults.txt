@@ -1,0 +1,153 @@
+Suspicious IP: 185.182.193.18 - Reasons: IP Reuse & Repeated Connections, C2_Suspicious_Ports, Frequency of Connections, P2P C2 Communications, Packet Size Anomalies, C2_Small_Packets - Risk Factor: 99.35%
+Suspicious IP: 185.100.233.168 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, P2P C2 Communications, Packet Size Anomalies, C2_Suspicious_Ports, C2_Small_Packets - Risk Factor: 99.35%
+Suspicious IP: 212.8.252.211 - Reasons: IP Reuse & Repeated Connections, Packet Size Anomalies, C2_Small_Packets, P2P C2 Communications, Frequency of Connections - Risk Factor: 98.71%
+Suspicious IP: 45.82.64.40 - Reasons: Packet Size Anomalies, IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 50.32%
+Suspicious IP: 185.82.216.111 - Reasons: Frequency of Connections, Packet Size Anomalies, C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 50.32%
+Suspicious IP: 175.110.112.214 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets, Packet Size Anomalies - Risk Factor: 50.32%
+Suspicious IP: 175.110.112.213 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets, Packet Size Anomalies - Risk Factor: 50.32%
+Suspicious IP: 175.110.112.212 - Reasons: C2_Small_Packets, Packet Size Anomalies, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 50.32%
+Suspicious IP: 80.79.5.53 - Reasons: C2_Small_Packets, Packet Size Anomalies, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 50.32%
+Suspicious IP: 212.8.250.225 - Reasons: Packet Size Anomalies, IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 50.32%
+Suspicious IP: 2.59.169.217 - Reasons: Packet Size Anomalies, IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 50.32%
+Suspicious IP: 185.182.193.17 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections, P2P C2 Communications - Risk Factor: 50.32%
+Suspicious IP: 185.100.233.162 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections, P2P C2 Communications - Risk Factor: 50.32%
+Suspicious IP: 5.199.162.73 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 95.217.112.218 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 85.195.244.251 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 188.114.97.0 - Reasons: Frequency of Connections, C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.94%
+Suspicious IP: 185.182.193.47 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 185.229.90.81 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 45.76.2.145 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 65.39.97.13 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 2.59.169.214 - Reasons: IP Reuse & Repeated Connections, C2_Small_Packets, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 212.8.250.85 - Reasons: Frequency of Connections, C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.94%
+Suspicious IP: 87.120.237.130 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 104.21.28.161 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 217.65.5.239 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 207.90.194.2 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 188.114.96.0 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 185.243.218.61 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 144.76.166.199 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 190.2.144.110 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 94.23.121.150 - Reasons: IP Reuse & Repeated Connections, C2_Small_Packets, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 46.4.66.188 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 188.214.132.49 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 23.82.136.232 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 162.251.117.10 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 157.90.183.103 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 1.1.1.1 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 172.67.163.169 - Reasons: Frequency of Connections, C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.94%
+Suspicious IP: 212.8.252.209 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 178.33.36.64 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 193.31.27.127 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 8.8.8.8 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 162.251.116.26 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 94.23.148.66 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 15.204.141.95 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 108.62.211.200 - Reasons: Frequency of Connections, C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.94%
+Suspicious IP: 185.7.33.120 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 212.8.250.222 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 144.76.166.141 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 146.0.36.87 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 164.132.75.248 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 45.140.143.145 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 178.32.60.161 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 93.190.136.10 - Reasons: Frequency of Connections, C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.94%
+Suspicious IP: 108.62.103.193 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 190.2.144.147 - Reasons: IP Reuse & Repeated Connections, C2_Small_Packets, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 104.57.231.26 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 95.111.230.178 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 65.21.85.98 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 185.220.101.81 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 185.162.251.135 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 65.108.136.190 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 89.58.32.67 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 188.68.56.100 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 149.202.79.129 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 37.120.186.122 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 135.148.100.90 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 45.82.64.37 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 45.82.64.38 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 51.159.153.241 - Reasons: Frequency of Connections, C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.94%
+Suspicious IP: 162.251.116.82 - Reasons: IP Reuse & Repeated Connections, C2_Small_Packets, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 2.58.52.163 - Reasons: Frequency of Connections, C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.94%
+Suspicious IP: 5.252.224.115 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 62.210.97.21 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 50.21.186.234 - Reasons: IP Reuse & Repeated Connections, Frequency of Connections, C2_Small_Packets - Risk Factor: 1.94%
+Suspicious IP: 188.68.50.174 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections, Frequency of Connections - Risk Factor: 1.94%
+Suspicious IP: 135.148.52.158 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.29%
+Suspicious IP: 79.110.62.185 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.29%
+Suspicious IP: 116.202.233.112 - Reasons: IP Reuse & Repeated Connections, C2_Small_Packets - Risk Factor: 1.29%
+Suspicious IP: 172.67.170.237 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.29%
+Suspicious IP: 68.67.32.31 - Reasons: IP Reuse & Repeated Connections, C2_Small_Packets - Risk Factor: 1.29%
+Suspicious IP: 87.229.115.23 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.29%
+Suspicious IP: 178.32.47.60 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.29%
+Suspicious IP: 142.132.157.35 - Reasons: IP Reuse & Repeated Connections, C2_Small_Packets - Risk Factor: 1.29%
+Suspicious IP: 193.163.125.199 - Reasons: C2_Suspicious_Ports, C2_Small_Packets - Risk Factor: 1.29%
+Suspicious IP: 51.81.57.125 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.29%
+Suspicious IP: 85.215.67.227 - Reasons: C2_Small_Packets, IP Reuse & Repeated Connections - Risk Factor: 1.29%
+Suspicious IP: 185.242.226.53 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 154.212.141.253 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 117.80.233.191 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 210.245.120.108 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 223.130.206.23 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 172.70.46.36 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 43.157.61.211 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 172.71.98.81 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 35.203.211.161 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 185.181.61.115 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 137.74.17.17 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 185.45.112.121 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 37.111.131.38 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 162.216.150.3 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 138.201.78.61 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 35.203.210.135 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 92.237.240.182 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 91.191.209.38 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 141.98.11.128 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 185.161.248.120 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 212.8.252.212 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 146.88.241.141 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 172.71.98.151 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 104.156.155.13 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 205.210.31.93 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 162.255.84.47 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 80.66.83.49 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 162.216.149.95 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 80.66.76.131 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 196.202.194.152 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 172.71.102.131 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 209.141.51.29 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 172.71.94.228 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 185.189.252.214 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 80.66.64.108 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 157.230.86.135 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 172.71.94.60 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 89.58.58.209 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 186.220.223.186 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 101.36.107.243 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 172.71.102.139 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 172.71.183.161 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 192.241.225.20 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 172.70.223.115 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 35.203.211.51 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 185.242.226.45 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 178.128.6.101 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 159.203.192.10 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 172.71.99.114 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 103.102.230.2 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 172.71.102.183 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 199.45.154.191 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 91.191.209.26 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 15.204.57.248 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 45.156.128.45 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 45.227.254.8 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 13.58.48.116 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 145.220.21.40 - Reasons: IP Reuse & Repeated Connections - Risk Factor: 0.65%
+Suspicious IP: 192.42.119.128 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 216.218.206.120 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 71.6.232.28 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 185.227.82.43 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 104.21.49.144 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 185.242.226.3 - Reasons: C2_Small_Packets - Risk Factor: 0.65%
+Suspicious IP: 162.216.150.214 - Reasons: C2_Small_Packets - Risk Factor: 0.65%

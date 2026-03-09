@@ -1,0 +1,89 @@
+Suspicious IP: 185.182.193.18 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, P2P C2 Communications, Packet Size Anomalies - Risk Factor: 98.06%
+Suspicious IP: 185.100.233.168 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, P2P C2 Communications, Packet Size Anomalies - Risk Factor: 98.06%
+Suspicious IP: 212.8.252.211 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, P2P C2 Communications, Packet Size Anomalies - Risk Factor: 98.06%
+Suspicious IP: 185.100.233.162 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, P2P C2 Communications - Risk Factor: 49.68%
+Suspicious IP: 2.59.169.217 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, Packet Size Anomalies - Risk Factor: 49.68%
+Suspicious IP: 175.110.112.212 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, Packet Size Anomalies - Risk Factor: 49.68%
+Suspicious IP: 175.110.112.214 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, Packet Size Anomalies - Risk Factor: 49.68%
+Suspicious IP: 45.82.64.40 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, Packet Size Anomalies - Risk Factor: 49.68%
+Suspicious IP: 185.82.216.111 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, Packet Size Anomalies - Risk Factor: 49.68%
+Suspicious IP: 80.79.5.53 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, Packet Size Anomalies - Risk Factor: 49.68%
+Suspicious IP: 175.110.112.213 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, Packet Size Anomalies - Risk Factor: 49.68%
+Suspicious IP: 185.182.193.17 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, P2P C2 Communications - Risk Factor: 49.68%
+Suspicious IP: 212.8.250.225 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections, Packet Size Anomalies - Risk Factor: 49.68%
+Suspicious IP: 172.67.163.169 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 45.82.64.37 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%        
+Suspicious IP: 23.82.136.232 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 2.59.169.214 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%       
+Suspicious IP: 157.90.183.103 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 188.214.132.49 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 144.76.166.141 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 94.23.121.150 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 37.120.186.122 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 85.195.244.251 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 164.132.75.248 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 185.220.101.81 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 185.229.90.81 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 217.65.5.239 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%       
+Suspicious IP: 178.32.60.161 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 144.76.166.199 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 188.68.56.100 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 46.4.66.188 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%        
+Suspicious IP: 185.7.33.120 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%       
+Suspicious IP: 149.202.79.129 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 135.148.100.90 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 212.8.250.85 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%       
+Suspicious IP: 1.1.1.1 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%
+Suspicious IP: 185.182.193.47 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 65.108.136.190 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 93.190.136.10 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 162.251.117.10 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 190.2.144.147 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 188.68.50.174 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 185.243.218.61 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 162.251.116.82 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 8.8.8.8 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%
+Suspicious IP: 94.23.148.66 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%       
+Suspicious IP: 178.33.36.64 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%       
+Suspicious IP: 188.114.96.0 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%       
+Suspicious IP: 108.62.103.193 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 45.140.143.145 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 87.120.237.130 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 212.8.250.222 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 146.0.36.87 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%        
+Suspicious IP: 193.31.27.127 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 108.62.211.200 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 190.2.144.110 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 212.8.252.209 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 188.114.97.0 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%       
+Suspicious IP: 2.58.52.163 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%        
+Suspicious IP: 207.90.194.2 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%       
+Suspicious IP: 185.162.251.135 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%    
+Suspicious IP: 51.159.153.241 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 95.217.112.218 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 65.21.85.98 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%        
+Suspicious IP: 45.76.2.145 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%        
+Suspicious IP: 89.58.32.67 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%        
+Suspicious IP: 15.204.141.95 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 50.21.186.234 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 65.39.97.13 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%        
+Suspicious IP: 162.251.116.26 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 62.210.97.21 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%       
+Suspicious IP: 104.21.28.161 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 95.111.230.178 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%     
+Suspicious IP: 5.199.162.73 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%       
+Suspicious IP: 5.252.224.115 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 45.82.64.38 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%        
+Suspicious IP: 104.57.231.26 - Reasons: Frequency of Connections, IP Reuse & Repeated Connections - Risk Factor: 1.29%      
+Suspicious IP: 68.67.32.31 - Reasons: IP Reuse & Repeated Connections - Risk Factor: 0.65%
+Suspicious IP: 172.67.170.237 - Reasons: IP Reuse & Repeated Connections - Risk Factor: 0.65%
+Suspicious IP: 116.202.233.112 - Reasons: IP Reuse & Repeated Connections - Risk Factor: 0.65%
+Suspicious IP: 87.229.115.23 - Reasons: IP Reuse & Repeated Connections - Risk Factor: 0.65%
+Suspicious IP: 85.215.67.227 - Reasons: IP Reuse & Repeated Connections - Risk Factor: 0.65%
+Suspicious IP: 145.220.21.40 - Reasons: IP Reuse & Repeated Connections - Risk Factor: 0.65%
+Suspicious IP: 51.81.57.125 - Reasons: IP Reuse & Repeated Connections - Risk Factor: 0.65%
+Suspicious IP: 178.32.47.60 - Reasons: IP Reuse & Repeated Connections - Risk Factor: 0.65%
+Suspicious IP: 135.148.52.158 - Reasons: IP Reuse & Repeated Connections - Risk Factor: 0.65%
+Suspicious IP: 142.132.157.35 - Reasons: IP Reuse & Repeated Connections - Risk Factor: 0.65%
+Suspicious IP: 79.110.62.185 - Reasons: IP Reuse & Repeated Connections - Risk Factor: 0.65%
+Execution time: 12.3902 seconds
