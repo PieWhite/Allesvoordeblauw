@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"goversion/models"
 )
 
 var timestampWarningLogged bool
@@ -71,7 +73,7 @@ func NewAggregator() *Aggregator {
 }
 
 // Update processes a single netflow record, updating the IP ML tracker.
-func (a *Aggregator) Update(record NetflowRecord) {
+func (a *Aggregator) Update(record models.NetflowRecord) {
 	first, ok1 := parseTimestamp(record.First)
 	if !ok1 {
 		return // Skip records without valid timestamps

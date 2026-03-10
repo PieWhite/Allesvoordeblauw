@@ -3,23 +3,18 @@ package main
 import (
 	"log"
 
+	"goversion/models"
+
 	xgboost "github.com/Elvenson/xgboost-go"
 	"github.com/Elvenson/xgboost-go/activation"
 	"github.com/Elvenson/xgboost-go/inference"
 	"github.com/Elvenson/xgboost-go/mat"
 )
 
-// MLResult holds the final model prediction for a single IP.
-type MLResult struct {
-	IP          string
-	Probability float64
-	IsBotnet    bool
-}
-
-// Detector orchestrates the ML detection pipeline.
 type Detector struct {
-	aggregator *Aggregator
-	model      *inference.Ensemble
+	TotalRecords int64
+	aggregator   *Aggregator
+	model        *inference.Ensemble
 }
 
 // NewDetector creates a ready-to-use ML Detector.
@@ -38,13 +33,13 @@ func NewDetector(modelPath string) *Detector {
 	}
 }
 
-// ProcessRecord processes a single netflow record, updating the IP ML tracker.
-func (d *Detector) ProcessRecord(record NetflowRecord) {
+func (d *Detector) ProcessRecord(record models.NetflowRecord) {
+	d.TotalRecords++
 	d.aggregator.Update(record)
 }
 
 // Results evaluates the ML model on all aggregated IP time-windows and returns the highest score for each IP.
-func (d *Detector) Results() []MLResult {
+func (d *Detector) Results() []models.MLResult {
 	// Map to track the MAXIMUM probability an IP achieved across all its 5-minute windows
 	maxProbs := make(map[string]float64)
 
@@ -81,10 +76,10 @@ func (d *Detector) Results() []MLResult {
 		}
 	}
 
-	var results []MLResult
+	var results []models.MLResult
 	for ip, prob := range maxProbs {
 		isBotnet := prob > 0.50
-		results = append(results, MLResult{
+		results = append(results, models.MLResult{
 			IP:          ip,
 			Probability: prob * 100.0,
 			IsBotnet:    isBotnet,

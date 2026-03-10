@@ -1,9 +1,0 @@
-tui ervan maken met de volgende dingen
-- auto detect welke time notatie gebruikt wordt
-- flags toevoegen aan de command om te starten met -m voor manual ofzo
-zodat ze de autodetect kunnen overriden
-- optie op tool te starten met 1 of config in met 2. 
-in de config kan je ip's en port's aanpassen. er is sws een default.
-
-
-- nadenken over hoe netflow bestand gegeven kunnen worden aan de tool
