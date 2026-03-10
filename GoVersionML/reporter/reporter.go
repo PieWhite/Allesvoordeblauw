@@ -12,7 +12,6 @@ import (
 // PrintSummary handles the presentation logic: formatting, sorting, and writing
 // the ML results to the provided output stream.
 func PrintSummary(out io.Writer, results []models.MLResult, totalRecords int64, duration time.Duration) {
-	// Sort results by Probability descending
 	sort.SliceStable(results, func(i, j int) bool {
 		return results[i].Probability > results[j].Probability
 	})
@@ -27,7 +26,6 @@ func PrintSummary(out io.Writer, results []models.MLResult, totalRecords int64, 
 		}
 	}
 
-	// Print a few benign ones for context
 	fmt.Fprintf(out, "\n[Top Benign Background Noise (For Contrast)]\n")
 	benignPrinted := 0
 	for _, res := range results {

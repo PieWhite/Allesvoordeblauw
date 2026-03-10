@@ -17,19 +17,18 @@ type Detector struct {
 	model        *inference.Ensemble
 }
 
-// NewDetector creates a ready-to-use ML Detector.
 func NewDetector(modelPath string) *Detector {
 	log.Printf("Loading XGBoost JSON dump from %s...", modelPath)
 
 	// Binary classification so numClasses=1, and we used max_depth=6 in python
-	ensemble, err := xgboost.LoadXGBoostFromJSON(modelPath, "", 1, 6, &activation.Logistic{})
+	loadedModel, err := xgboost.LoadXGBoostFromJSON(modelPath, "", 1, 6, &activation.Logistic{})
 	if err != nil {
 		log.Fatalf("Error loading XGBoost JSON dump: %v", err)
 	}
 
 	return &Detector{
 		aggregator: NewAggregator(),
-		model:      ensemble,
+		model:      loadedModel,
 	}
 }
 

@@ -35,8 +35,8 @@ type IPStats struct {
 	FlowCount          int
 	UniqueDstIPs       map[string]bool
 	UniqueDstPorts     map[int]bool
-	OutboundDstPorts   map[int]bool // for P2P port symmetry tracking
-	InboundDstPorts    map[int]bool // for P2P port symmetry tracking
+	OutboundDstPorts   map[int]bool
+	InboundDstPorts    map[int]bool
 	TotalBytes         float64
 	TotalPackets       float64
 	TCPCount           float64
