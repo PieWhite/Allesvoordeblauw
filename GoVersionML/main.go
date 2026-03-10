@@ -16,7 +16,7 @@ func main() {
 	modelPath := flag.String("m", "botnet_xgboost.json", "Path to the XGBoost JSON dump")
 	outputFile := flag.String("o", "", "Write results to a text file (in addition to console)")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [flags] <netflow.json>\n\nFlags:\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [flags] <example_netflow.json>\n\nFlags:\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -29,6 +29,8 @@ func main() {
 	if flag.NArg() > 0 {
 		netflowPath = flag.Arg(0)
 	}
+
+	start := time.Now()
 
 	// Set up output writers (console + optional file)
 	var writers []io.Writer
@@ -45,7 +47,6 @@ func main() {
 	out := io.MultiWriter(writers...)
 
 	fmt.Fprintf(out, "Scanning %s with XGBoost ML Model...\n", netflowPath)
-	start := time.Now()
 
 	// Open file and use streaming JSON decoder for memory efficiency
 	file, err := os.Open(netflowPath)

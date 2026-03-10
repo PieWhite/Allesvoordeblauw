@@ -1,0 +1,38 @@
+{
+    "suspicious_ports": [
+        6667,
+        1337,
+        8080,
+        9001,
+        4444,
+        9999,
+        50505
+    ],
+    "known_c2_ips": [
+        "149.28.156.183",
+        "162.243.103.246",
+        "172.232.58.169",
+        "172.232.58.237",
+        "193.238.227.136",
+        "91.230.49.1"
+    ],
+    "thresholds": {
+        "frequency_of_connections": 10,
+        "ip_reuse_connections": 3,
+        "p2p_unique_peers": 5,
+        "small_avg_packet_bytes": 200,
+        "min_packets_for_avg": 10,
+        "suspicious_port_connection_count": 10,
+        "suspicious_port_time_window_sec": 600,
+        "behavioral_connection_count": 50,
+        "behavioral_time_window_sec": 300
+    },
+    "weights": {
+        "frequency_of_connections": 1,
+        "ip_reuse_repeated_connections": 1,
+        "p2p_c2_communications": 75,
+        "c2_suspicious_ports": 1,
+        "c2_known_proxies": 1,
+        "c2_small_packets": 1
+    }
+}
