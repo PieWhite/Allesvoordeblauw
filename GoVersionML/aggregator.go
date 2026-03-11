@@ -115,14 +115,14 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 		}
 
 		// Ports
-		if record.DstPort > 0 && record.DstPort < 1024 {
+		if record.DstPort < 1024 {
 			stats.WellKnownPortCount++
 		}
 
 		// Timing
 		last, ok2 := parseTimestamp(record.Last)
 		// Track Start Time specifically for this Target (NetFlow v5 Periodic Beaconing fix)
-		targetKey := record.Dst4Addr + ":" + string(rune(record.DstPort))
+		targetKey := fmt.Sprintf("%s:%d", record.Dst4Addr, record.DstPort)
 		stats.TargetStartTimes[targetKey] = append(stats.TargetStartTimes[targetKey], float64(first.UnixNano())/1e9)
 
 		if ok2 {
@@ -148,6 +148,87 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 		dstStats.InboundDstPorts[record.DstPort] = true
 	}
 }
+
+// Update processes a single netflow record, updating the IP ML tracker.
+// func (a *Aggregator) Update(record models.NetflowRecord) {
+// 	first, ok := parseTimestamp(record.First)
+// 	if !ok {
+// 		return // Skip records without valid timestamps
+// 	}
+
+// 	// 1. Process Outbound Perspective
+// 	if record.Src4Addr != "" {
+// 		srcStats := a.getOrCreateStats(record.Src4Addr, first)
+// 		updateOutboundStats(srcStats, record, first)
+// 	}
+
+// 	// 2. Process Inbound Perspective
+// 	if record.Dst4Addr != "" {
+// 		dstStats := a.getOrCreateStats(record.Dst4Addr, first)
+// 		updateInboundStats(dstStats, record)
+// 	}
+// }
+
+// // getOrCreateStats handles the map lookup and initialization
+// func (a *Aggregator) getOrCreateStats(ip string, ts time.Time) *IPStats {
+// 	key := getWindowKey(ip, ts)
+// 	stats, exists := a.IPs[key]
+// 	if !exists {
+// 		stats = NewIPStats()
+// 		stats.IP = ip
+// 		a.IPs[key] = stats
+// 	}
+// 	return stats
+// }
+
+// func updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time) {
+// 	stats.FlowCount++
+// 	stats.UniqueDstIPs[record.Dst4Addr] = true
+// 	stats.UniqueDstPorts[record.DstPort] = true
+// 	stats.OutboundDstPorts[record.DstPort] = true
+// 	stats.TotalBytes += float64(record.InBytes)
+// 	stats.TotalPackets += float64(record.InPackets)
+
+// 	// Proto
+// 	switch record.Proto {
+// 	case 6:
+// 		stats.TCPCount++
+// 	case 17:
+// 		stats.UDPCount++
+// 	case 1:
+// 		stats.ICMPCount++
+// 	}
+
+// 	// Flags (Resilient SYN-only check)
+// 	if strings.Contains(record.TCPFlags, "S") && !strings.ContainsAny(record.TCPFlags, "AFR") {
+// 		stats.SynOnlyCount++
+// 	}
+// 	if strings.Contains(record.TCPFlags, "R") {
+// 		stats.RstCount++
+// 	}
+
+// 	// Ports
+// 	if record.DstPort > 0 && record.DstPort < 1024 {
+// 		stats.WellKnownPortCount++
+// 	}
+
+// 	// Timing & Beaconing (BUG FIXED)
+// 	targetKey := fmt.Sprintf("%s:%d", record.Dst4Addr, record.DstPort)
+// 	stats.TargetStartTimes[targetKey] = append(stats.TargetStartTimes[targetKey], float64(first.UnixNano())/1e9)
+
+// 	if last, ok := parseTimestamp(record.Last); ok {
+// 		duration := last.Sub(first).Seconds()
+// 		if duration < 0 {
+// 			duration = 0
+// 		}
+// 		stats.SumDurationSec += duration
+// 	}
+// }
+
+// func updateInboundStats(stats *IPStats, record models.NetflowRecord) {
+// 	// FIX: Use DstPort instead of SrcPort since the peer is connecting TO this port
+// 	stats.InboundDstPorts[record.DstPort] = true
+// }
 
 // ToMLVector computes the final 21 float64 features expected by XGBoost V2.
 func (s *IPStats) ToMLVector() []float64 {
@@ -196,6 +277,7 @@ func (s *IPStats) ToMLVector() []float64 {
 	var allDiffs []float64
 
 	for _, times := range s.TargetStartTimes {
+		allDiffs = append(allDiffs, 0) // First flow in each target group gets 0 (matches Python fillna(0))
 		if len(times) > 1 {
 			sort.Float64s(times)
 			for i := 1; i < len(times); i++ {
@@ -215,7 +297,9 @@ func (s *IPStats) ToMLVector() []float64 {
 		for _, d := range allDiffs {
 			sumSqDiff += (d - iatMean) * (d - iatMean)
 		}
-		iatVar = sumSqDiff / float64(len(allDiffs))
+		if len(allDiffs) > 1 {
+			iatVar = sumSqDiff / float64(len(allDiffs)-1) // ddof=1, matches pandas default
+		}
 
 		if iatMean > 0 {
 			iatCV = math.Sqrt(iatVar) / iatMean
