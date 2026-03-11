@@ -1,0 +1,16 @@
+Confidential-Data/demo-csv.netflow
+Confidential-Data/demo-extended.netflow
+Confidential-Data/demo-json.netflow
+Confidential-Data/demo-line.netflow
+Confidential-Data/demo-long.netflow
+Confidential-Data/demo-pipe.netflow
+Confidential-Data/demo-raw.netflow
+Scripts/converted_netflow copy.json
+Scripts/converted_netflow.json
+Scripts/DataConverter/capture20110810.binetflow
+Scripts/DataConverter/capture20110810.json
+Scripts/rules/c2_behavioral_patterns.yar
+Scripts/rules/c2_known_proxies.yar
+Scripts/rules/c2_suspicious_ports.yar
+Scripts/test_netflow copy.json
+Scripts/test_netflow.json
