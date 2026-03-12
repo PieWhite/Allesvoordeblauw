@@ -29,7 +29,7 @@ func getWindowKey(ip string, t time.Time) string {
 	return fmt.Sprintf("%s|%d", ip, window)
 }
 
-// IPStats tracks all the raw data needed to compute our 21 Advanced XGBoost features.
+// IPStats tracks all the raw data needed to compute our 26 Advanced XGBoost V3 features.
 type IPStats struct {
 	IP                 string
 	FlowCount          int
@@ -47,6 +47,14 @@ type IPStats struct {
 	WellKnownPortCount float64
 	SumDurationSec     float64
 	TargetStartTimes   map[string][]float64 // Tracks timestamps grouped by DstIP:DstPort
+
+	// V3 fields
+	BytesList        []float64      // Per-flow byte values (for std dev)
+	PacketsList      []float64      // Per-flow packet values (for std dev)
+	SmallPacketCount float64        // Flows with in_packets <= 3
+	DstIPFlowCounts  map[string]int // Per-destination-IP flow count (for Shannon entropy)
+	WindowFirstFlow  time.Time      // Earliest 'first' timestamp in window
+	WindowLastFlow   time.Time      // Latest 'last' timestamp in window
 }
 
 // NewIPStats creates a ready-to-use IPStats
@@ -57,6 +65,7 @@ func NewIPStats() *IPStats {
 		OutboundDstPorts: make(map[int]bool),
 		InboundDstPorts:  make(map[int]bool),
 		TargetStartTimes: make(map[string][]float64),
+		DstIPFlowCounts:  make(map[string]int),
 	}
 }
 
@@ -97,6 +106,18 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 		stats.TotalBytes += float64(record.InBytes)
 		stats.TotalPackets += float64(record.InPackets)
 
+		// V3: Track per-flow values for std dev calculation
+		stats.BytesList = append(stats.BytesList, float64(record.InBytes))
+		stats.PacketsList = append(stats.PacketsList, float64(record.InPackets))
+
+		// V3: Small packet detection (Mirai scan probes are typically 1-3 packets)
+		if record.InPackets <= 3 {
+			stats.SmallPacketCount++
+		}
+
+		// V3: Track per-destination flow count for Shannon entropy
+		stats.DstIPFlowCounts[record.Dst4Addr]++
+
 		// Proto
 		if record.Proto == 6 {
 			stats.TCPCount++
@@ -125,7 +146,15 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 		targetKey := fmt.Sprintf("%s:%d", record.Dst4Addr, record.DstPort)
 		stats.TargetStartTimes[targetKey] = append(stats.TargetStartTimes[targetKey], float64(first.UnixNano())/1e9)
 
+		// V3: Track window time boundaries for flow_rate
+		if stats.WindowFirstFlow.IsZero() || first.Before(stats.WindowFirstFlow) {
+			stats.WindowFirstFlow = first
+		}
+
 		if ok2 {
+			if stats.WindowLastFlow.IsZero() || last.After(stats.WindowLastFlow) {
+				stats.WindowLastFlow = last
+			}
 			duration := last.Sub(first).Seconds()
 			if duration < 0 {
 				duration = 0
@@ -149,92 +178,50 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 	}
 }
 
-// Update processes a single netflow record, updating the IP ML tracker.
-// func (a *Aggregator) Update(record models.NetflowRecord) {
-// 	first, ok := parseTimestamp(record.First)
-// 	if !ok {
-// 		return // Skip records without valid timestamps
-// 	}
+// sampleStdDev computes sample standard deviation (ddof=1) to match pandas .std() default.
+// Returns 0 when fewer than 2 values (matches pandas fillna(0) for single-flow groups).
+func sampleStdDev(vals []float64) float64 {
+	n := len(vals)
+	if n < 2 {
+		return 0
+	}
+	var sum float64
+	for _, v := range vals {
+		sum += v
+	}
+	mean := sum / float64(n)
+	var sumSq float64
+	for _, v := range vals {
+		d := v - mean
+		sumSq += d * d
+	}
+	return math.Sqrt(sumSq / float64(n-1))
+}
 
-// 	// 1. Process Outbound Perspective
-// 	if record.Src4Addr != "" {
-// 		srcStats := a.getOrCreateStats(record.Src4Addr, first)
-// 		updateOutboundStats(srcStats, record, first)
-// 	}
+// shannonEntropy computes the Shannon entropy (log base 2) of a frequency distribution.
+func shannonEntropy(counts map[string]int) float64 {
+	var total float64
+	for _, c := range counts {
+		total += float64(c)
+	}
+	if total == 0 {
+		return 0
+	}
+	var entropy float64
+	for _, c := range counts {
+		if c > 0 {
+			p := float64(c) / total
+			entropy -= p * math.Log2(p)
+		}
+	}
+	return entropy
+}
 
-// 	// 2. Process Inbound Perspective
-// 	if record.Dst4Addr != "" {
-// 		dstStats := a.getOrCreateStats(record.Dst4Addr, first)
-// 		updateInboundStats(dstStats, record)
-// 	}
-// }
-
-// // getOrCreateStats handles the map lookup and initialization
-// func (a *Aggregator) getOrCreateStats(ip string, ts time.Time) *IPStats {
-// 	key := getWindowKey(ip, ts)
-// 	stats, exists := a.IPs[key]
-// 	if !exists {
-// 		stats = NewIPStats()
-// 		stats.IP = ip
-// 		a.IPs[key] = stats
-// 	}
-// 	return stats
-// }
-
-// func updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time) {
-// 	stats.FlowCount++
-// 	stats.UniqueDstIPs[record.Dst4Addr] = true
-// 	stats.UniqueDstPorts[record.DstPort] = true
-// 	stats.OutboundDstPorts[record.DstPort] = true
-// 	stats.TotalBytes += float64(record.InBytes)
-// 	stats.TotalPackets += float64(record.InPackets)
-
-// 	// Proto
-// 	switch record.Proto {
-// 	case 6:
-// 		stats.TCPCount++
-// 	case 17:
-// 		stats.UDPCount++
-// 	case 1:
-// 		stats.ICMPCount++
-// 	}
-
-// 	// Flags (Resilient SYN-only check)
-// 	if strings.Contains(record.TCPFlags, "S") && !strings.ContainsAny(record.TCPFlags, "AFR") {
-// 		stats.SynOnlyCount++
-// 	}
-// 	if strings.Contains(record.TCPFlags, "R") {
-// 		stats.RstCount++
-// 	}
-
-// 	// Ports
-// 	if record.DstPort > 0 && record.DstPort < 1024 {
-// 		stats.WellKnownPortCount++
-// 	}
-
-// 	// Timing & Beaconing (BUG FIXED)
-// 	targetKey := fmt.Sprintf("%s:%d", record.Dst4Addr, record.DstPort)
-// 	stats.TargetStartTimes[targetKey] = append(stats.TargetStartTimes[targetKey], float64(first.UnixNano())/1e9)
-
-// 	if last, ok := parseTimestamp(record.Last); ok {
-// 		duration := last.Sub(first).Seconds()
-// 		if duration < 0 {
-// 			duration = 0
-// 		}
-// 		stats.SumDurationSec += duration
-// 	}
-// }
-
-// func updateInboundStats(stats *IPStats, record models.NetflowRecord) {
-// 	// FIX: Use DstPort instead of SrcPort since the peer is connecting TO this port
-// 	stats.InboundDstPorts[record.DstPort] = true
-// }
-
-// ToMLVector computes the final 21 float64 features expected by XGBoost V2.
+// ToMLVector computes the final 26 float64 features expected by XGBoost V3.
 func (s *IPStats) ToMLVector() []float64 {
 	fc := float64(s.FlowCount)
 	if fc == 0 {
-		return make([]float64, 21) // Length matches V2 feature set
+		return make([]float64, 26) // Length matches V3 feature set
 	}
 
 	avgBytes := s.TotalBytes / fc
@@ -245,6 +232,24 @@ func (s *IPStats) ToMLVector() []float64 {
 	pctWellKnown := (s.WellKnownPortCount / fc) * 100.0
 	pctHigh := 100.0 - pctWellKnown
 	avgDuration := s.SumDurationSec / fc
+
+	// V3: Byte/Packet Standard Deviation (ddof=1, matches pandas)
+	bytesStd := sampleStdDev(s.BytesList)
+	packetsStd := sampleStdDev(s.PacketsList)
+
+	// V3: Flow Rate (flows per second of active window duration)
+	var flowRate float64
+	windowDuration := s.WindowLastFlow.Sub(s.WindowFirstFlow).Seconds()
+	if windowDuration < 1 {
+		windowDuration = 1 // clip(lower=1) matches Python
+	}
+	flowRate = fc / windowDuration
+
+	// V3: Small Packet Ratio
+	pctSmallPacket := (s.SmallPacketCount / fc) * 100.0
+
+	// V3: Destination IP Shannon Entropy
+	dstIPEntropy := shannonEntropy(s.DstIPFlowCounts)
 
 	// V2: Port Symmetry
 	var portSymmetry float64
@@ -306,27 +311,33 @@ func (s *IPStats) ToMLVector() []float64 {
 		}
 	}
 
+	// V3 feature order — matches extract_features_v3.py features_to_keep exactly
 	return []float64{
-		fc,                             // 0
-		float64(len(s.UniqueDstIPs)),   // 1
-		float64(len(s.UniqueDstPorts)), // 2
-		s.TotalBytes,                   // 3
-		s.TotalPackets,                 // 4
-		avgBytes,                       // 5
-		avgPackets,                     // 6
-		pctTCP,                         // 7
-		pctUDP,                         // 8
-		pctICMP,                        // 9
-		pctWellKnown,                   // 10
-		pctHigh,                        // 11
-		avgDuration,                    // 12
-		iatMean,                        // 13
-		iatVar,                         // 14
-		portSymmetry,                   // 15
-		ipPortRatio,                    // 16
-		avgPayload,                     // 17
-		pctSynOnly,                     // 18
-		pctRst,                         // 19
-		iatCV,                          // 20
+		fc,                             // 0  flow_count
+		float64(len(s.UniqueDstIPs)),   // 1  unique_dst_ips
+		float64(len(s.UniqueDstPorts)), // 2  unique_dst_ports
+		s.TotalBytes,                   // 3  total_bytes
+		s.TotalPackets,                 // 4  total_packets
+		avgBytes,                       // 5  avg_bytes_per_flow
+		avgPackets,                     // 6  avg_packets_per_flow
+		bytesStd,                       // 7  bytes_std          (V3 NEW)
+		packetsStd,                     // 8  packets_std        (V3 NEW)
+		flowRate,                       // 9  flow_rate          (V3 NEW)
+		pctSmallPacket,                 // 10 pct_small_packet   (V3 NEW)
+		dstIPEntropy,                   // 11 dst_ip_entropy     (V3 NEW)
+		pctTCP,                         // 12 pct_tcp
+		pctUDP,                         // 13 pct_udp
+		pctICMP,                        // 14 pct_icmp
+		pctWellKnown,                   // 15 pct_well_known_ports
+		pctHigh,                        // 16 pct_high_ports
+		avgDuration,                    // 17 avg_duration
+		iatMean,                        // 18 iat_mean
+		iatVar,                         // 19 iat_variance
+		portSymmetry,                   // 20 port_symmetry
+		ipPortRatio,                    // 21 ip_port_ratio
+		avgPayload,                     // 22 avg_payload_per_packet
+		pctSynOnly,                     // 23 pct_syn_only
+		pctRst,                         // 24 pct_rst
+		iatCV,                          // 25 iat_cv
 	}
 }
