@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"goversion/config"
+	"goversion/engine"
 	"goversion/ingest"
 	"goversion/output"
 	"goversion/reporter"
@@ -32,7 +33,7 @@ func run() error {
 	}
 	defer cleanup()
 
-	detector := NewDetector(appConfig.ModelPath)
+	detector := engine.NewDetector(appConfig.ModelPath)
 	fmt.Fprintf(out, "Scanning %s with XGBoost...\n", appConfig.NetflowPath)
 
 	err = ingest.ProcessInput(appConfig.NetflowPath, detector.ProcessRecord)

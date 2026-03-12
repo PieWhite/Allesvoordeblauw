@@ -1,4 +1,4 @@
-package main
+package engine
 
 import (
 	"fmt"
@@ -12,16 +12,19 @@ import (
 	"github.com/Elvenson/xgboost-go/mat"
 )
 
+// Detector is the main ML inference engine. It aggregates netflow records and
+// runs the XGBoost model to produce per-IP botnet probability scores.
 type Detector struct {
 	TotalRecords int64
 	aggregator   *Aggregator
 	model        *inference.Ensemble
 }
 
+// NewDetector loads the XGBoost model and returns a ready-to-use Detector.
 func NewDetector(modelPath string) *Detector {
 	log.Printf("Loading XGBoost JSON dump from %s...", modelPath)
 
-	// Binary classification so numClasses=1, and we used max_depth=6 in python
+	// Binary classification, max_depth=6 matches training config
 	loadedModel, err := xgboost.LoadXGBoostFromJSON(modelPath, "", 1, 6, &activation.Logistic{})
 	if err != nil {
 		log.Fatalf("Error loading XGBoost JSON dump: %v", err)
@@ -33,33 +36,33 @@ func NewDetector(modelPath string) *Detector {
 	}
 }
 
+// ProcessRecord feeds a single netflow record into the aggregator.
 func (d *Detector) ProcessRecord(record models.NetflowRecord) {
 	d.TotalRecords++
 	d.aggregator.Update(record)
 }
 
-// Results evaluates the ML model and returns the highest score for each IP.
+// Results evaluates the ML model and returns the highest score per IP.
 func (d *Detector) Results() []models.MLResult {
 	maxProbs := make(map[string]float64)
 
-	// 1. Evaluate all records
+	// Evaluate all window-level records
 	for _, stats := range d.aggregator.IPs {
 		features := stats.ToMLVector()
 
-		// We hid all the XGBoost complexity inside this clean helper!
 		prob, err := d.predictProbability(features)
 		if err != nil {
 			log.Printf("Error predicting for %s: %v", stats.IP, err)
 			continue
 		}
 
-		// Track the highest probability seen for this IP
+		// Track the highest probability seen for this IP across all windows
 		if currentMax, exists := maxProbs[stats.IP]; !exists || prob > currentMax {
 			maxProbs[stats.IP] = prob
 		}
 	}
 
-	// 2. Format the final output
+	// Format the final output
 	var results []models.MLResult
 	for ip, prob := range maxProbs {
 		results = append(results, models.MLResult{
@@ -73,7 +76,7 @@ func (d *Detector) Results() []models.MLResult {
 }
 
 func (d *Detector) predictProbability(features []float64) (float64, error) {
-	// 1. The Plumbing: Convert dense float64 slice to XGBoost's SparseMatrix
+	// Convert dense float64 slice to XGBoost's SparseMatrix format
 	sv := make(mat.SparseVector)
 	for i, val := range features {
 		if val != 0 {
@@ -84,12 +87,12 @@ func (d *Detector) predictProbability(features []float64) (float64, error) {
 	input := mat.SparseMatrix{
 		Vectors: []mat.SparseVector{sv},
 	}
-	// 2. The Engine: Let the library do the actual ML inference
+
 	preds, err := d.model.PredictProba(input)
 	if err != nil {
 		return 0, err
 	}
-	// 3. The Unpacking: Digging through the nested XGBoost response
+
 	if len(preds.Vectors) > 0 {
 		v := *preds.Vectors[0]
 		if len(v) > 0 {
