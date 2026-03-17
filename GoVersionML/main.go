@@ -41,7 +41,7 @@ func run() error {
 		return fmt.Errorf("scanning input file: %w", err)
 	}
 
-	results := detector.Results()
+	results := detector.CalculateResults()
 	reporter.PrintSummary(out, results, detector.TotalRecords, time.Since(start))
 
 	if appConfig.OutputFile != "" {

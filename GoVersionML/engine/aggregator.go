@@ -22,14 +22,11 @@ func parseTimestamp(s string) (time.Time, bool) {
 	return t, err == nil
 }
 
-// Helper to chunk data into 5-minute time windows like Python
-func getWindowKey(ip string, t time.Time) string {
-	// Floor to 5 minute chunks
+func getTimeWindowKey(ip string, t time.Time) string {
 	window := t.Truncate(5 * time.Minute).Unix()
 	return fmt.Sprintf("%s|%d", ip, window)
 }
 
-// IPStats tracks all the raw data needed to compute our 21 Advanced XGBoost V2 features.
 type IPStats struct {
 	IP                 string
 	FlowCount          int
@@ -46,10 +43,9 @@ type IPStats struct {
 	RstCount           float64
 	WellKnownPortCount float64
 	SumDurationSec     float64
-	TargetStartTimes   map[string][]float64 // Tracks timestamps grouped by DstIP:DstPort
+	TargetStartTimes   map[string][]float64
 }
 
-// NewIPStats creates a ready-to-use IPStats
 func NewIPStats() *IPStats {
 	return &IPStats{
 		UniqueDstIPs:     make(map[string]bool),
@@ -60,41 +56,35 @@ func NewIPStats() *IPStats {
 	}
 }
 
-// Aggregator accumulates states per IP to build ML vectors
 type Aggregator struct {
 	IPs map[string]*IPStats
 }
 
-// NewAggregator creates an empty Aggregator
 func NewAggregator() *Aggregator {
 	return &Aggregator{
 		IPs: make(map[string]*IPStats),
 	}
 }
 
-// Update processes a single netflow record, updating the IP ML tracker.
 func (a *Aggregator) Update(record models.NetflowRecord) {
 	first, ok := parseTimestamp(record.First)
 	if !ok {
-		return // Skip records without valid timestamps
+		return
 	}
 
-	// 1. Process Outbound Perspective
 	if record.Src4Addr != "" {
-		srcStats := a.getOrCreateStats(record.Src4Addr, first)
+		srcStats := a.getIPStats(record.Src4Addr, first)
 		updateOutboundStats(srcStats, record, first)
 	}
 
-	// 2. Process Inbound Perspective
 	if record.Dst4Addr != "" {
-		dstStats := a.getOrCreateStats(record.Dst4Addr, first)
+		dstStats := a.getIPStats(record.Dst4Addr, first)
 		updateInboundStats(dstStats, record)
 	}
 }
 
-// getOrCreateStats handles the map lookup and initialization
-func (a *Aggregator) getOrCreateStats(ip string, ts time.Time) *IPStats {
-	key := getWindowKey(ip, ts)
+func (a *Aggregator) getIPStats(ip string, ts time.Time) *IPStats {
+	key := getTimeWindowKey(ip, ts)
 	stats, exists := a.IPs[key]
 	if !exists {
 		stats = NewIPStats()
@@ -112,7 +102,6 @@ func updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time
 	stats.TotalBytes += float64(record.InBytes)
 	stats.TotalPackets += float64(record.InPackets)
 
-	// Proto
 	switch record.Proto {
 	case 6:
 		stats.TCPCount++
@@ -122,7 +111,6 @@ func updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time
 		stats.ICMPCount++
 	}
 
-	// Flags (Resilient SYN-only check)
 	if strings.Contains(record.TCPFlags, "S") && !strings.ContainsAny(record.TCPFlags, "AFR") {
 		stats.SynOnlyCount++
 	}
@@ -130,41 +118,40 @@ func updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time
 		stats.RstCount++
 	}
 
-	// Ports (matches Python: dst_port < 1024)
 	if record.DstPort < 1024 {
 		stats.WellKnownPortCount++
 	}
 
-	// Timing & Beaconing
+	stats.updateTimingMetrics(record, first)
+}
+
+func updateInboundStats(stats *IPStats, record models.NetflowRecord) {
+	stats.InboundDstPorts[record.DstPort] = true
+}
+
+func (s *IPStats) updateTimingMetrics(record models.NetflowRecord, first time.Time) {
 	targetKey := fmt.Sprintf("%s:%d", record.Dst4Addr, record.DstPort)
-	stats.TargetStartTimes[targetKey] = append(stats.TargetStartTimes[targetKey], float64(first.UnixNano())/1e9)
+	s.TargetStartTimes[targetKey] = append(s.TargetStartTimes[targetKey], float64(first.UnixNano())/1e9)
 
 	if last, ok := parseTimestamp(record.Last); ok {
 		duration := last.Sub(first).Seconds()
 		if duration < 0 {
 			duration = 0
 		}
-		stats.SumDurationSec += duration
+		s.SumDurationSec += duration
 	}
-}
-
-func updateInboundStats(stats *IPStats, record models.NetflowRecord) {
-	// Use DstPort since the peer is connecting TO this port
-	stats.InboundDstPorts[record.DstPort] = true
 }
 
 // ToMLVector computes the final 21 float64 features expected by XGBoost V2.
 func (s *IPStats) ToMLVector() []float64 {
 	fc := float64(s.FlowCount)
 	if fc == 0 {
-		return make([]float64, 21) // Length matches V2 feature set
+		return make([]float64, 21)
 	}
 
-	// 1. Delegate the complex math to our helpers
 	portSymmetry := s.calculatePortSymmetry()
 	iatMean, iatVar, iatCV := s.calculateIATMetrics()
 
-	// 2. Calculate simple inline ratios
 	uniquePorts := float64(len(s.UniqueDstPorts))
 	if uniquePorts == 0 {
 		uniquePorts = 1
@@ -175,9 +162,9 @@ func (s *IPStats) ToMLVector() []float64 {
 		totalPackets = 1
 	}
 
-	pctWellKnown := (s.WellKnownPortCount / fc) * 100.0
+	pctWellKnownPorts := (s.WellKnownPortCount / fc) * 100.0
 
-	// 3. Pack and return the array — order matches extract_features_v2.py features_to_keep
+	//Pack and return the array — order matches extract_features_v2.py
 	return []float64{
 		fc,                             // 0:  flow_count
 		float64(len(s.UniqueDstIPs)),   // 1:  unique_dst_ips
@@ -189,8 +176,8 @@ func (s *IPStats) ToMLVector() []float64 {
 		(s.TCPCount / fc) * 100.0,      // 7:  pct_tcp
 		(s.UDPCount / fc) * 100.0,      // 8:  pct_udp
 		(s.ICMPCount / fc) * 100.0,     // 9:  pct_icmp
-		pctWellKnown,                   // 10: pct_well_known_ports
-		100.0 - pctWellKnown,           // 11: pct_high_ports
+		pctWellKnownPorts,              // 10: pct_well_known_ports
+		100.0 - pctWellKnownPorts,      // 11: pct_high_ports
 		s.SumDurationSec / fc,          // 12: avg_duration
 		iatMean,                        // 13: iat_mean
 		iatVar,                         // 14: iat_variance
@@ -203,7 +190,6 @@ func (s *IPStats) ToMLVector() []float64 {
 	}
 }
 
-// calculatePortSymmetry finds instances where the IP acts as both client and server on the same port
 func (s *IPStats) calculatePortSymmetry() float64 {
 	var symmetry float64
 	for p := range s.OutboundDstPorts {
@@ -214,8 +200,6 @@ func (s *IPStats) calculatePortSymmetry() float64 {
 	return symmetry
 }
 
-// calculateIATMetrics computes the Mean, Variance (ddof=1), and CV of inter-arrival times.
-// Matches Python pipeline: first flow per target group gets 0 (fillna(0)), variance uses ddof=1.
 func (s *IPStats) calculateIATMetrics() (mean float64, variance float64, cv float64) {
 	var allDiffs []float64
 
@@ -233,14 +217,13 @@ func (s *IPStats) calculateIATMetrics() (mean float64, variance float64, cv floa
 		return 0, 0, 0
 	}
 
-	// Calculate Mean
 	var sumDiffs float64
 	for _, d := range allDiffs {
 		sumDiffs += d
 	}
 	mean = sumDiffs / float64(len(allDiffs))
 
-	// Calculate Variance (ddof=1, matches pandas .var() default)
+	// (ddof=1, matches pandas .var() default)
 	var sumSqDiff float64
 	for _, d := range allDiffs {
 		sumSqDiff += (d - mean) * (d - mean)
