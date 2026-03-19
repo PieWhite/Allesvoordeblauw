@@ -8,28 +8,29 @@ import (
 
 	xgboost "github.com/Elvenson/xgboost-go"
 	"github.com/Elvenson/xgboost-go/activation"
-	"github.com/Elvenson/xgboost-go/inference"
 	"github.com/Elvenson/xgboost-go/mat"
 )
+
+type XGBoostModel interface {
+	PredictProba(input mat.SparseMatrix) (mat.Matrix, error)
+}
 
 type Detector struct {
 	TotalRecords int64
 	aggregator   *Aggregator
-	model        *inference.Ensemble
+	model        XGBoostModel
 }
 
-func NewDetector(modelPath string) *Detector {
-	log.Printf("Loading XGBoost JSON dump from %s...", modelPath)
-
+func NewDetector(modelPath string) (*Detector, error) {
 	loadedModel, err := xgboost.LoadXGBoostFromJSON(modelPath, "", 1, 6, &activation.Logistic{})
 	if err != nil {
-		log.Fatalf("Error loading XGBoost JSON dump: %v", err)
+		return nil, fmt.Errorf("failed to load model: %w", err)
 	}
 
 	return &Detector{
 		aggregator: NewAggregator(),
 		model:      loadedModel,
-	}
+	}, nil
 }
 
 func (d *Detector) ProcessRecord(record models.NetflowRecord) {

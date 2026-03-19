@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -22,9 +23,12 @@ func main() {
 func run() error {
 	start := time.Now()
 
-	appConfig, err := config.ParseFlags()
-	if err != nil {
-		return fmt.Errorf("parsing flags: %w", err)
+	appConfig := &config.AppConfig{}
+	if err := appConfig.ParseArgs(os.Args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			os.Exit(0)
+		}
+		return err
 	}
 
 	out, cleanup, err := output.Setup(appConfig.OutputFile)
@@ -33,10 +37,17 @@ func run() error {
 	}
 	defer cleanup()
 
-	detector := engine.NewDetector(appConfig.ModelPath)
+	detector, err := engine.NewDetector(appConfig.ModelPath)
+	if err != nil {
+		return fmt.Errorf("Failed loading xgboost model %w", err)
+	}
 	fmt.Fprintf(out, "Scanning %s with XGBoost...\n", appConfig.NetflowPath)
 
-	err = ingest.ProcessInput(appConfig.NetflowPath, detector.ProcessRecord)
+	flowIngestor := &ingest.Ingestor{
+		NetflowScanner: &ingest.JSONScanner{},
+	}
+
+	err = flowIngestor.ProcessInput(appConfig.NetflowPath, detector.ProcessRecord)
 	if err != nil {
 		return fmt.Errorf("scanning input file: %w", err)
 	}

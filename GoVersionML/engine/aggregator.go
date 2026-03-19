@@ -11,22 +11,6 @@ import (
 	"goversion/models"
 )
 
-var timestampWarningLogged bool
-
-func parseTimestamp(s string) (time.Time, bool) {
-	t, err := time.Parse("2006-01-02T15:04:05.000", s)
-	if err != nil && !timestampWarningLogged {
-		log.Printf("WARNING: failed to parse timestamp %q: %v (further warnings suppressed)", s, err)
-		timestampWarningLogged = true
-	}
-	return t, err == nil
-}
-
-func getTimeWindowKey(ip string, t time.Time) string {
-	window := t.Truncate(5 * time.Minute).Unix()
-	return fmt.Sprintf("%s|%d", ip, window)
-}
-
 type IPStats struct {
 	IP                 string
 	FlowCount          int
@@ -57,7 +41,8 @@ func NewIPStats() *IPStats {
 }
 
 type Aggregator struct {
-	IPs map[string]*IPStats
+	IPs                    map[string]*IPStats
+	timestampWarningLogged bool // Moved from global to struct field
 }
 
 func NewAggregator() *Aggregator {
@@ -66,15 +51,29 @@ func NewAggregator() *Aggregator {
 	}
 }
 
+func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
+	t, err := time.Parse("2006-01-02T15:04:05.000", s)
+	if err != nil && !a.timestampWarningLogged {
+		log.Printf("WARNING: failed to parse timestamp %q: %v (further warnings suppressed)", s, err)
+		a.timestampWarningLogged = true
+	}
+	return t, err == nil
+}
+
+func getTimeWindowKey(ip string, t time.Time) string {
+	window := t.Truncate(5 * time.Minute).Unix()
+	return fmt.Sprintf("%s|%d", ip, window)
+}
+
 func (a *Aggregator) Update(record models.NetflowRecord) {
-	first, ok := parseTimestamp(record.First)
+	first, ok := a.parseTimestamp(record.First)
 	if !ok {
 		return
 	}
 
 	if record.Src4Addr != "" {
 		srcStats := a.getIPStats(record.Src4Addr, first)
-		updateOutboundStats(srcStats, record, first)
+		a.updateOutboundStats(srcStats, record, first)
 	}
 
 	if record.Dst4Addr != "" {
@@ -94,7 +93,7 @@ func (a *Aggregator) getIPStats(ip string, ts time.Time) *IPStats {
 	return stats
 }
 
-func updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time) {
+func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time) {
 	stats.FlowCount++
 	stats.UniqueDstIPs[record.Dst4Addr] = true
 	stats.UniqueDstPorts[record.DstPort] = true
@@ -122,18 +121,18 @@ func updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time
 		stats.WellKnownPortCount++
 	}
 
-	stats.updateTimingMetrics(record, first)
+	a.updateTimingMetrics(stats, record, first)
 }
 
 func updateInboundStats(stats *IPStats, record models.NetflowRecord) {
 	stats.InboundDstPorts[record.DstPort] = true
 }
 
-func (s *IPStats) updateTimingMetrics(record models.NetflowRecord, first time.Time) {
+func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord, first time.Time) {
 	targetKey := fmt.Sprintf("%s:%d", record.Dst4Addr, record.DstPort)
 	s.TargetStartTimes[targetKey] = append(s.TargetStartTimes[targetKey], float64(first.UnixNano())/1e9)
 
-	if last, ok := parseTimestamp(record.Last); ok {
+	if last, ok := a.parseTimestamp(record.Last); ok {
 		duration := last.Sub(first).Seconds()
 		if duration < 0 {
 			duration = 0

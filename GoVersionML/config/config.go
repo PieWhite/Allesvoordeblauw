@@ -3,8 +3,6 @@ package config
 import (
 	"flag"
 	"fmt"
-	"os"
-	"path/filepath"
 )
 
 // AppConfig holds the configuration state for the application.
@@ -16,28 +14,21 @@ type AppConfig struct {
 }
 
 // ParseFlags reads command-line flags and arguments, populating the AppConfig.
-func ParseFlags() (*AppConfig, error) {
-	modelPath := flag.String("m", "./Xgboost/botnet_xgboost.json", "Path to the XGBoost JSON")
-	outputFile := flag.String("o", "", "Write results to a text file")
+// ParseArgs takes a slice of strings (like os.Args[1:]) and a FlagSet.
+// This makes it 100% testable without global hacks.
+func (c *AppConfig) ParseArgs(args []string) error {
+	fs := flag.NewFlagSet("config", flag.ContinueOnError)
 
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [flags] <example_netflow.json>\nFlags:\n", filepath.Base(os.Args[0]))
-		flag.PrintDefaults()
+	fs.StringVar(&c.ModelPath, "m", "./Xgboost/botnet_xgboost.json", "Path to XGBoost JSON: -m ./Xgboost/your-xgboost-name.json")
+	fs.StringVar(&c.OutputFile, "o", "", "Write results to a text file: -o yourresults.txt")
+
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
 
-	flag.Parse()
-
-	if flag.NArg() == 0 {
-		return nil, fmt.Errorf("You need to specify a netflow file to analyse")
+	if fs.NArg() == 0 {
+		return fmt.Errorf("you need to specify a netflow file")
 	}
-	if flag.NArg() > 1 {
-		return nil, fmt.Errorf("You are not allowed to specify multiple files")
-	}
-	netflowPath := flag.Arg(0)
-
-	return &AppConfig{
-		ModelPath:   *modelPath,
-		OutputFile:  *outputFile,
-		NetflowPath: netflowPath,
-	}, nil
+	c.NetflowPath = fs.Arg(0)
+	return nil
 }
