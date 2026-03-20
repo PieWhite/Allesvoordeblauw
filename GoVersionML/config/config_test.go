@@ -18,7 +18,7 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 	}{
 		{
 			name:        "Valid: all flags and argument",
-			args:        []string{"-m", "custom_model.json", "-o", "results.txt", "data.json"},
+			args:        []string{"-m", "custom_model.json", "-o", "results.txt", "-input-format", "netflow", "data.json"},
 			wantNetflow: "data.json",
 			wantModel:   "custom_model.json",
 			wantOutput:  "results.txt",
@@ -52,6 +52,11 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 			name:       "Error: invalid flag provided",
 			args:       []string{"-unknown", "val", "data.json"},
 			wantErrStr: "flag provided but not defined",
+		},
+		{
+			name:       "Error: invalid input-format value",
+			args:       []string{"-input-format", "xml", "data.json"},
+			wantErrStr: "invalid input format",
 		},
 	}
 
@@ -92,6 +97,12 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 			}
 			if cfg.OutputFile != tt.wantOutput {
 				t.Errorf("OutputFile = %q, want %q", cfg.OutputFile, tt.wantOutput)
+			}
+
+			if tt.wantErrStr == "" {
+				if cfg.InputFormat == "" {
+					t.Errorf("InputFormat should never be empty")
+				}
 			}
 		})
 	}

@@ -41,10 +41,22 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("Failed loading xgboost model %w", err)
 	}
+
+	selectedFormat := ingest.InputFormat(appConfig.InputFormat)
+	if appConfig.InputFormat == "auto" {
+		detected, detectErr := ingest.DetectInputFormatByPath(appConfig.NetflowPath)
+		if detectErr != nil {
+			return detectErr
+		}
+		selectedFormat = detected
+	}
+
+	fmt.Fprintf(out, "Detected input format: %s\n", selectedFormat)
 	fmt.Fprintf(out, "Scanning %s with XGBoost...\n", appConfig.NetflowPath)
 
 	flowIngestor := &ingest.Ingestor{
 		NetflowScanner: &ingest.JSONScanner{},
+		InputFormat:    selectedFormat,
 	}
 
 	err = flowIngestor.ProcessInput(appConfig.NetflowPath, detector.ProcessRecord)
