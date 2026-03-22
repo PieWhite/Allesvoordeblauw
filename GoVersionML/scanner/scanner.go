@@ -2,9 +2,10 @@ package scanner
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
+
+	"github.com/goccy/go-json"
 
 	"goversion/models"
 )
