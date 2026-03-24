@@ -1,11 +1,86 @@
 package scanner
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
 	"goversion/models"
 )
+
+// A mocked reader to simulate read errors.
+type errReader struct{ err error }
+
+func (e *errReader) Read(p []byte) (n int, err error) {
+	return 0, e.err
+}
+
+func TestIsArray(t *testing.T) {
+	t.Run("Valid JSON Array Start", func(t *testing.T) {
+		r := strings.NewReader("[{}, {}]")
+		isArr, reader, err := isArray(r)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if !isArr {
+			t.Errorf("expected isArr=true")
+		}
+		
+		// Check the returned reader still contains the full data
+		b, _ := io.ReadAll(reader)
+		if string(b) != "[{}, {}]" {
+			t.Errorf("reader corrupted: %s", string(b))
+		}
+	})
+
+	t.Run("Valid NDJSON Start", func(t *testing.T) {
+		r := strings.NewReader(`{"a": 1}` + "\n" + `{"b": 2}`)
+		isArr, reader, err := isArray(r)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if isArr {
+			t.Errorf("expected isArr=false")
+		}
+
+		b, _ := io.ReadAll(reader)
+		if !strings.HasPrefix(string(b), "{") {
+			t.Errorf("reader corrupted")
+		}
+	})
+
+	t.Run("Empty Stream", func(t *testing.T) {
+		r := strings.NewReader("")
+		isArr, reader, err := isArray(r)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if isArr {
+			t.Errorf("expected false for empty")
+		}
+		
+		// Reading from stream should be EOF
+		b := make([]byte, 1)
+		_, readErr := reader.Read(b)
+		if readErr != io.EOF {
+			t.Errorf("expected EOF, got %v", readErr)
+		}
+	})
+
+	t.Run("Read Error", func(t *testing.T) {
+		expectedErr := errors.New("mock read error")
+		r := &errReader{err: expectedErr}
+		isArr, _, err := isArray(r)
+		if err != expectedErr {
+			t.Errorf("expected %v, got %v", expectedErr, err)
+		}
+		if isArr {
+			t.Errorf("expected isArr=false on error")
+		}
+	})
+}
 
 func TestStreamNetflow(t *testing.T) {
 	t.Run("Valid JSON Array", func(t *testing.T) {
@@ -45,7 +120,6 @@ func TestStreamNetflow(t *testing.T) {
 
 	t.Run("Resilient NDJSON (Skips Broken Lines)", func(t *testing.T) {
 		// One record per line. Line 2 is garbage.
-		// Note: No opening [ and no commas between objects.
 		input := `{"src4_addr": "1.1.1.1"}
 {"broken": ---}
 {"src4_addr": "2.2.2.2"}`
@@ -69,6 +143,39 @@ func TestStreamNetflow(t *testing.T) {
 		err := StreamNetflow(r, func(record models.NetflowRecord) {})
 		if err != nil {
 			t.Errorf("Empty input should not error, got %v", err)
+		}
+	})
+
+	t.Run("Read Error Initial IsArray", func(t *testing.T) {
+		expectedErr := errors.New("mock read error initial")
+		r := &errReader{err: expectedErr}
+		
+		err := StreamNetflow(r, func(record models.NetflowRecord) {})
+		if err != expectedErr {
+			t.Errorf("expected %v, got %v", expectedErr, err)
+		}
+	})
+
+	t.Run("Reader ReadFull Error Mid-Stream Array", func(t *testing.T) {
+		// We simulate a reader that reads one character '[' then returns an error.
+		// We can do this with io.MultiReader
+		mockErr := errors.New("mid-stream failure")
+		r := io.MultiReader(strings.NewReader("["), &errReader{err: mockErr})
+
+		err := StreamNetflow(r, func(record models.NetflowRecord) {})
+		// The error from the reader is captured in errChan, returning mockErr wrapped
+		if err == nil || !bytes.Contains([]byte(err.Error()), []byte("mid-stream failure")) {
+			t.Errorf("expected mid-stream error, got %v", err)
+		}
+	})
+
+	t.Run("Reader ReadFull Error Mid-Stream NDJSON", func(t *testing.T) {
+		mockErr := errors.New("mid-stream failure")
+		r := io.MultiReader(strings.NewReader("{"), &errReader{err: mockErr})
+
+		err := StreamNetflow(r, func(record models.NetflowRecord) {})
+		if err == nil || !bytes.Contains([]byte(err.Error()), []byte("mid-stream failure")) {
+			t.Errorf("expected mid-stream error, got %v", err)
 		}
 	})
 }
