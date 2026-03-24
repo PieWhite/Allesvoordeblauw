@@ -5,12 +5,12 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"runtime"
 	"sync"
 
 	"github.com/goccy/go-json"
 
 	"goversion/models"
+	"goversion/utils"
 )
 
 const chunkSize = 16 * 1024 * 1024 // 16 MB boundary
@@ -20,18 +20,29 @@ type result struct {
 	err     error
 }
 
-func StreamNetflow(stream io.Reader, processFn func(models.NetflowRecord)) error {
-	reader := bufio.NewReaderSize(stream, 64*1024)
-	peek, err := reader.Peek(1)
+func isArray(stream io.Reader) (bool, io.Reader, error) {
+	// Read exactly 1 byte to determine if it's an array without buffering the entire stream
+	buf := make([]byte, 1)
+	n, err := stream.Read(buf)
 	if err != nil && err != io.EOF {
+		return false, nil, err
+	}
+	if n == 0 {
+		return false, stream, nil
+	}
+
+	isArr := buf[0] == '['
+	// Reconstruct the stream so the first peeked byte isn't lost
+	return isArr, io.MultiReader(bytes.NewReader(buf[:n]), stream), nil
+}
+
+func StreamNetflow(stream io.Reader, processFn func(models.NetflowRecord)) error {
+	isArr, reader, err := isArray(stream)
+	if err != nil {
 		return err
 	}
-	isArray := len(peek) > 0 && peek[0] == '['
 
-	numWorkers := runtime.NumCPU()
-	if numWorkers < 2 {
-		numWorkers = 2
-	}
+	numWorkers := utils.OptimalWorkerCount()
 
 	chunksChan := make(chan []byte, numWorkers*2)
 	resultsChan := make(chan result, numWorkers*2)
@@ -39,18 +50,24 @@ func StreamNetflow(stream io.Reader, processFn func(models.NetflowRecord)) error
 
 	var wg sync.WaitGroup
 
-	// Workers
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go processJson(chunksChan, resultsChan, isArray, &wg)
+	if isArr {
+		for i := 0; i < numWorkers; i++ {
+			wg.Add(1)
+			go processJsonArray(chunksChan, resultsChan, &wg)
+		}
+		go readJsonArray(reader, chunksChan, errChan)
+	} else {
+		for i := 0; i < numWorkers; i++ {
+			wg.Add(1)
+			go processJsonLines(chunksChan, resultsChan, &wg)
+		}
+		go readJsonLines(reader, chunksChan, errChan)
 	}
 
 	go func() {
 		wg.Wait()
 		close(resultsChan)
 	}()
-
-	go readjson(reader, chunksChan, errChan, isArray)
 
 	var firstErr error
 
@@ -74,47 +91,61 @@ func StreamNetflow(stream io.Reader, processFn func(models.NetflowRecord)) error
 	return firstErr
 }
 
-func processJson(chunksChan <-chan []byte, resultsChan chan<- result, isArray bool, wg *sync.WaitGroup) {
+func wrapAndDecode(chunk []byte) ([]models.NetflowRecord, []byte, error) {
+	cleanChunk := bytes.Trim(bytes.TrimSpace(chunk), "[], \n\r\t")
+	if len(cleanChunk) == 0 {
+		return nil, nil, nil
+	}
+
+	wrapped := make([]byte, 0, len(cleanChunk)+2)
+	wrapped = append(wrapped, '[')
+	wrapped = append(wrapped, cleanChunk...)
+	wrapped = append(wrapped, ']')
+
+	var records []models.NetflowRecord
+	decoder := json.NewDecoder(bytes.NewReader(wrapped))
+
+	if err := decoder.Decode(&records); err != nil {
+		return nil, wrapped, err
+	}
+	return records, nil, nil
+}
+
+func processJsonArray(chunksChan <-chan []byte, resultsChan chan<- result, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for chunk := range chunksChan {
-		// Clean up the chunk by removing leading/trailing structural characters.
-		cleanChunk := bytes.Trim(bytes.TrimSpace(chunk), "[], \n\r\t")
-		if len(cleanChunk) == 0 {
-			continue
+		records, wrapped, err := wrapAndDecode(chunk)
+		if err != nil && len(wrapped) > 0 {
+			// For strict Array mode, any corruption fails the parse,
+			// but we must yield any valid records parsed before the error.
+			var validBatch []models.NetflowRecord
+			fallbackDecoder := json.NewDecoder(bytes.NewReader(wrapped))
+			_, _ = fallbackDecoder.Token() // skip '['
+			for fallbackDecoder.More() {
+				var rec models.NetflowRecord
+				if errUnm := fallbackDecoder.Decode(&rec); errUnm != nil {
+					resultsChan <- result{records: validBatch}
+					resultsChan <- result{err: fmt.Errorf("json array corruption: %w", errUnm)}
+					return
+				}
+				validBatch = append(validBatch, rec)
+			}
+			resultsChan <- result{records: validBatch}
+			return // Stop this worker
 		}
 
-		// Wrap the clean chunk in brackets to mimic a valid JSON array.
-		wrapped := make([]byte, 0, len(cleanChunk)+2)
-		wrapped = append(wrapped, '[')
-		wrapped = append(wrapped, cleanChunk...)
-		wrapped = append(wrapped, ']')
+		if records != nil {
+			resultsChan <- result{records: records}
+		}
+	}
+}
 
-		var records []models.NetflowRecord
-		decoder := json.NewDecoder(bytes.NewReader(wrapped))
-
-		if err := decoder.Decode(&records); err != nil {
-			// Fallback and Error Handling
-			if isArray {
-				// For strict Array mode, any corruption fails the parse,
-				// but we must yield any valid records parsed before the error.
-				var validBatch []models.NetflowRecord
-				fallbackDecoder := json.NewDecoder(bytes.NewReader(wrapped))
-				_, _ = fallbackDecoder.Token() // skip '['
-				for fallbackDecoder.More() {
-					var rec models.NetflowRecord
-					if errUnm := fallbackDecoder.Decode(&rec); errUnm != nil {
-						resultsChan <- result{records: validBatch}
-						resultsChan <- result{err: fmt.Errorf("json array corruption: %w", errUnm)}
-						return
-					}
-					validBatch = append(validBatch, rec)
-				}
-				resultsChan <- result{records: validBatch}
-				return // Stop this worker
-			}
-
+func processJsonLines(chunksChan <-chan []byte, resultsChan chan<- result, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for chunk := range chunksChan {
+		records, _, err := wrapAndDecode(chunk)
+		if err != nil {
 			// For resilient NDJSON, fallback to line-by-line parsing of this chunk
-			// to skip broken lines.
 			scanner := bufio.NewScanner(bytes.NewReader(chunk))
 			var validBatch []models.NetflowRecord
 			for scanner.Scan() {
@@ -141,11 +172,21 @@ func processJson(chunksChan <-chan []byte, resultsChan chan<- result, isArray bo
 			continue
 		}
 
-		resultsChan <- result{records: records}
+		if records != nil {
+			resultsChan <- result{records: records}
+		}
 	}
 }
 
-func readjson(reader io.Reader, chunksChan chan<- []byte, errChan chan<- error, isArray bool) {
+func readJsonArray(reader io.Reader, chunksChan chan<- []byte, errChan chan<- error) {
+	readjsonByDelimiter(reader, chunksChan, errChan, '}')
+}
+
+func readJsonLines(reader io.Reader, chunksChan chan<- []byte, errChan chan<- error) {
+	readjsonByDelimiter(reader, chunksChan, errChan, '\n')
+}
+
+func readjsonByDelimiter(reader io.Reader, chunksChan chan<- []byte, errChan chan<- error, delimiter byte) {
 	defer close(chunksChan)
 
 	var leftover []byte
@@ -172,14 +213,7 @@ func readjson(reader io.Reader, chunksChan chan<- []byte, errChan chan<- error, 
 		}
 
 		// Find boundary
-		var idx int
-		if isArray {
-			// Scan backwards for '}'
-			idx = bytes.LastIndexByte(chunkBuf[:total], '}')
-		} else {
-			// Scan backwards for '\n'
-			idx = bytes.LastIndexByte(chunkBuf[:total], '\n')
-		}
+		idx := bytes.LastIndexByte(chunkBuf[:total], delimiter)
 
 		if idx == -1 {
 			errChan <- fmt.Errorf("record larger than chunk size (16MB)")
