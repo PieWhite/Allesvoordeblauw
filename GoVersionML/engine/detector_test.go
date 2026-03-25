@@ -95,9 +95,9 @@ func TestCalculateResults_LoggingAndContinue(t *testing.T) {
 		model:      mock,
 	}
 
-	// Setup two unique IPs in the aggregator
-	d.aggregator.IPs["ip1"] = &IPStats{IP: "1.1.1.1", FlowCount: 1}
-	d.aggregator.IPs["ip2"] = &IPStats{IP: "2.2.2.2", FlowCount: 1}
+	// Setup two unique IPs in the aggregator via Update
+	d.aggregator.Update(models.NetflowRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000"})
+	d.aggregator.Update(models.NetflowRecord{Src4Addr: "2.2.2.2", First: "2026-03-17T12:00:00.000"})
 
 	// Fail the first call to trigger 'continue', succeed the second
 	callCount := 0

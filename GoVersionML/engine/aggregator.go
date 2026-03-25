@@ -1,11 +1,13 @@
 package engine
 
 import (
-	"fmt"
+	"hash/fnv"
 	"log"
 	"math"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"goversion/models"
@@ -14,10 +16,10 @@ import (
 type IPStats struct {
 	IP                 string
 	FlowCount          int
-	UniqueDstIPs       map[string]bool
-	UniqueDstPorts     map[int]bool
-	OutboundDstPorts   map[int]bool
-	InboundDstPorts    map[int]bool
+	UniqueDstIPs       map[string]struct{}
+	UniqueDstPorts     map[int]struct{}
+	OutboundDstPorts   map[int]struct{}
+	InboundDstPorts    map[int]struct{}
 	TotalBytes         float64
 	TotalPackets       float64
 	TCPCount           float64
@@ -27,42 +29,70 @@ type IPStats struct {
 	RstCount           float64
 	WellKnownPortCount float64
 	SumDurationSec     float64
-	TargetStartTimes   map[string][]float64
+	TargetStartTimes   map[TargetKey][]float64
 }
 
 func NewIPStats() *IPStats {
 	return &IPStats{
-		UniqueDstIPs:     make(map[string]bool),
-		UniqueDstPorts:   make(map[int]bool),
-		OutboundDstPorts: make(map[int]bool),
-		InboundDstPorts:  make(map[int]bool),
-		TargetStartTimes: make(map[string][]float64),
+		UniqueDstIPs:     make(map[string]struct{}),
+		UniqueDstPorts:   make(map[int]struct{}),
+		OutboundDstPorts: make(map[int]struct{}),
+		InboundDstPorts:  make(map[int]struct{}),
+		TargetStartTimes: make(map[TargetKey][]float64),
 	}
+}
+
+type TargetKey struct {
+	IP   string
+	Port int
+}
+
+const numShards = 64
+
+type WindowKey struct {
+	IP     string
+	Window int64
+}
+
+type Shard struct {
+	sync.RWMutex
+	IPs map[WindowKey]*IPStats
 }
 
 type Aggregator struct {
-	IPs                    map[string]*IPStats
-	timestampWarningLogged bool // Moved from global to struct field
+	shards                 [numShards]*Shard
+	timestampWarningLogged atomic.Bool
 }
 
 func NewAggregator() *Aggregator {
-	return &Aggregator{
-		IPs: make(map[string]*IPStats),
+	a := &Aggregator{}
+	for i := 0; i < numShards; i++ {
+		a.shards[i] = &Shard{
+			IPs: make(map[WindowKey]*IPStats),
+		}
 	}
+	return a
+}
+
+func (a *Aggregator) getShardIndex(key WindowKey) int {
+	h := fnv.New32a()
+	h.Write([]byte(key.IP))
+	return int(h.Sum32()) & (numShards - 1)
 }
 
 func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
 	t, err := time.Parse("2006-01-02T15:04:05.000", s)
-	if err != nil && !a.timestampWarningLogged {
+	if err != nil && a.timestampWarningLogged.CompareAndSwap(false, true) {
 		log.Printf("WARNING: failed to parse timestamp %q: %v (further warnings suppressed)", s, err)
-		a.timestampWarningLogged = true
 	}
 	return t, err == nil
 }
 
-func getTimeWindowKey(ip string, t time.Time) string {
-	window := t.Truncate(5 * time.Minute).Unix()
-	return fmt.Sprintf("%s|%d", ip, window)
+func getWindowKey(ip string, t time.Time) WindowKey {
+	return WindowKey{
+		IP:     ip,
+		Window: t.Truncate(5 * time.Minute).Unix(),
+	}
 }
 
 func (a *Aggregator) Update(record models.NetflowRecord) {
@@ -72,32 +102,57 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 	}
 
 	if record.Src4Addr != "" {
-		srcStats := a.getIPStats(record.Src4Addr, first)
-		a.updateOutboundStats(srcStats, record, first)
+		key := getWindowKey(record.Src4Addr, first)
+		shardIdx := a.getShardIndex(key)
+		shard := a.shards[shardIdx]
+
+		shard.Lock()
+		stats, exists := shard.IPs[key]
+		if !exists {
+			stats = NewIPStats()
+			stats.IP = record.Src4Addr
+			shard.IPs[key] = stats
+		}
+		a.updateOutboundStats(stats, record, first)
+		shard.Unlock()
 	}
 
 	if record.Dst4Addr != "" {
-		dstStats := a.getIPStats(record.Dst4Addr, first)
-		updateInboundStats(dstStats, record)
+		key := getWindowKey(record.Dst4Addr, first)
+		shardIdx := a.getShardIndex(key)
+		shard := a.shards[shardIdx]
+
+		shard.Lock()
+		stats, exists := shard.IPs[key]
+		if !exists {
+			stats = NewIPStats()
+			stats.IP = record.Dst4Addr
+			shard.IPs[key] = stats
+		}
+		updateInboundStats(stats, record)
+		shard.Unlock()
 	}
 }
 
-func (a *Aggregator) getIPStats(ip string, ts time.Time) *IPStats {
-	key := getTimeWindowKey(ip, ts)
-	stats, exists := a.IPs[key]
-	if !exists {
-		stats = NewIPStats()
-		stats.IP = ip
-		a.IPs[key] = stats
+// AllIPStats safely collects all IPStats across shards
+func (a *Aggregator) AllIPStats() []*IPStats {
+	var all []*IPStats
+	for i := 0; i < numShards; i++ {
+		shard := a.shards[i]
+		shard.RLock()
+		for _, stats := range shard.IPs {
+			all = append(all, stats)
+		}
+		shard.RUnlock()
 	}
-	return stats
+	return all
 }
 
 func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time) {
 	stats.FlowCount++
-	stats.UniqueDstIPs[record.Dst4Addr] = true
-	stats.UniqueDstPorts[record.DstPort] = true
-	stats.OutboundDstPorts[record.DstPort] = true
+	stats.UniqueDstIPs[record.Dst4Addr] = struct{}{}
+	stats.UniqueDstPorts[record.DstPort] = struct{}{}
+	stats.OutboundDstPorts[record.DstPort] = struct{}{}
 	stats.TotalBytes += float64(record.InBytes)
 	stats.TotalPackets += float64(record.InPackets)
 
@@ -125,12 +180,12 @@ func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRe
 }
 
 func updateInboundStats(stats *IPStats, record models.NetflowRecord) {
-	stats.InboundDstPorts[record.DstPort] = true
+	stats.InboundDstPorts[record.DstPort] = struct{}{}
 }
 
 func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord, first time.Time) {
-	targetKey := fmt.Sprintf("%s:%d", record.Dst4Addr, record.DstPort)
-	s.TargetStartTimes[targetKey] = append(s.TargetStartTimes[targetKey], float64(first.UnixNano())/1e9)
+	tKey := TargetKey{IP: record.Dst4Addr, Port: record.DstPort}
+	s.TargetStartTimes[tKey] = append(s.TargetStartTimes[tKey], float64(first.UnixNano())/1e9)
 
 	if last, ok := a.parseTimestamp(record.Last); ok {
 		duration := last.Sub(first).Seconds()
@@ -192,7 +247,7 @@ func (s *IPStats) ToMLVector() []float64 {
 func (s *IPStats) calculatePortSymmetry() float64 {
 	var symmetry float64
 	for p := range s.OutboundDstPorts {
-		if s.InboundDstPorts[p] {
+		if _, ok := s.InboundDstPorts[p]; ok {
 			symmetry++
 		}
 	}
@@ -200,7 +255,14 @@ func (s *IPStats) calculatePortSymmetry() float64 {
 }
 
 func (s *IPStats) calculateIATMetrics() (mean float64, variance float64, cv float64) {
-	var allDiffs []float64
+	totalItems := len(s.TargetStartTimes) // for the fillna(0) zeros
+	for _, times := range s.TargetStartTimes {
+		if len(times) > 1 {
+			totalItems += len(times) - 1
+		}
+	}
+
+	allDiffs := make([]float64, 0, totalItems)
 
 	for _, times := range s.TargetStartTimes {
 		allDiffs = append(allDiffs, 0) // Match Python fillna(0)

@@ -40,7 +40,7 @@ func (d *Detector) ProcessRecord(record models.NetflowRecord) {
 
 func (d *Detector) CalculateResults() []models.MLResult {
 	maxProbs := make(map[string]float64)
-	for _, stats := range d.aggregator.IPs {
+	for _, stats := range d.aggregator.AllIPStats() {
 		features := stats.ToMLVector()
 		prob, err := d.predictProbability(features)
 		if err != nil {
