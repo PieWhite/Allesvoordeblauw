@@ -47,7 +47,7 @@ func run() error {
 		NetflowScanner: &ingest.JSONScanner{},
 	}
 
-	err = flowIngestor.ProcessInput(appConfig.NetflowPath, detector.ProcessRecord)
+	err = flowIngestor.ProcessInput(appConfig.NetflowPath, detector.ProcessRecords)
 	if err != nil {
 		return fmt.Errorf("scanning input file: %w", err)
 	}

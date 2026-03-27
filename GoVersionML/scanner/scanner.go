@@ -29,7 +29,7 @@ func isArray(stream io.Reader) (bool, io.Reader, error) {
 	return isArr, io.MultiReader(bytes.NewReader(buf[:n]), stream), nil
 }
 
-func StreamNetflow(stream io.Reader, processFn func(models.NetflowRecord)) error {
+func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 	isArr, reader, err := isArray(stream)
 	if err != nil {
 		return err
@@ -71,9 +71,7 @@ func StreamNetflow(stream io.Reader, processFn func(models.NetflowRecord)) error
 			}
 			continue
 		}
-		for _, record := range res.records {
-			processFn(record)
-		}
+		processFn(res.records)
 	}
 
 	if readerErr := <-errChan; readerErr != nil && firstErr == nil {

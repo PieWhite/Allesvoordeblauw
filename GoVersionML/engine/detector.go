@@ -33,6 +33,13 @@ func NewDetector(modelPath string) (*Detector, error) {
 	}, nil
 }
 
+func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
+	d.TotalRecords += int64(len(records))
+	for _, record := range records {
+		d.aggregator.Update(record)
+	}
+}
+
 func (d *Detector) ProcessRecord(record models.NetflowRecord) {
 	d.TotalRecords++
 	d.aggregator.Update(record)

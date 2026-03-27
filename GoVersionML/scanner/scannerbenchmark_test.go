@@ -39,7 +39,7 @@ func BenchmarkStreamNetflow(b *testing.B) {
 		reader := bytes.NewReader(mockData)
 
 		// Run the function
-		err := StreamNetflow(reader, func(record models.NetflowRecord) {
+		err := StreamNetflow(reader, func(records []models.NetflowRecord) {
 			// Blackhole the result (do nothing). We just want to measure the parsing overhead.
 		})
 

@@ -27,6 +27,7 @@ func readjsonByDelimiter(reader io.Reader, chunksChan chan<- []byte, errChan cha
 	defer close(chunksChan)
 
 	var leftover []byte
+	var leftoverBuf []byte
 
 	for {
 		bufPtr := chunkPool.Get().(*[]byte)
@@ -62,9 +63,8 @@ func readjsonByDelimiter(reader io.Reader, chunksChan chan<- []byte, errChan cha
 
 		chunksChan <- chunkBuf[:idx+1]
 
-		leftoverLen := total - (idx + 1)
-		leftover = make([]byte, leftoverLen)
-		copy(leftover, chunkBuf[idx+1:total])
+		leftoverBuf = append(leftoverBuf[:0], chunkBuf[idx+1:total]...)
+		leftover = leftoverBuf
 	}
 	close(errChan)
 }

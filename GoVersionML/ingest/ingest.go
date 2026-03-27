@@ -14,14 +14,14 @@ import (
 // NetflowScanner defines the interface for streaming records.
 // This allows us to swap the real scanner for a mock during testing.
 type Scanner interface {
-	StreamNetflow(r io.Reader, fn func(models.NetflowRecord)) error
+	StreamNetflow(r io.Reader, fn func([]models.NetflowRecord)) error
 }
 
 // RealScanner is the production implementation.
 // It acts as an adapter that calls the package-level scanner.StreamNetflow.
 type JSONScanner struct{}
 
-func (rs *JSONScanner) StreamNetflow(r io.Reader, fn func(models.NetflowRecord)) error {
+func (rs *JSONScanner) StreamNetflow(r io.Reader, fn func([]models.NetflowRecord)) error {
 	return scanner.StreamNetflow(r, fn)
 }
 
@@ -31,7 +31,7 @@ type Ingestor struct {
 }
 
 // ProcessInput detects the file type, opens it, and delegates to the scanner.
-func (i *Ingestor) ProcessInput(path string, processFn func(record models.NetflowRecord)) error {
+func (i *Ingestor) ProcessInput(path string, processFn func([]models.NetflowRecord)) error {
 	// 1. Determine the file type (case-insensitive)
 	extension := strings.ToLower(filepath.Ext(path))
 

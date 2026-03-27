@@ -2,37 +2,37 @@ package scanner
 
 import (
 	"bytes"
+	"sync"
 
 	"github.com/goccy/go-json"
 
 	"goversion/models"
 )
 
-func wrapChunk(chunk []byte) []byte {
-	cleanChunk := bytes.Trim(bytes.TrimSpace(chunk), "[], \n\r\t")
-	if len(cleanChunk) == 0 {
-		return nil
-	}
-
-	wrapped := make([]byte, 0, len(cleanChunk)+2)
-	wrapped = append(wrapped, '[')
-	wrapped = append(wrapped, cleanChunk...)
-	wrapped = append(wrapped, ']')
-
-	return wrapped
+var wrapPool = sync.Pool{
+	New: func() interface{} {
+		return new(bytes.Buffer)
+	},
 }
 
-func decodeChunk(chunk []byte) ([]models.NetflowRecord, []byte, error) {
-	wrapped := wrapChunk(chunk)
-	if wrapped == nil {
+func decodeChunkArray(chunk []byte) ([]models.NetflowRecord, *bytes.Buffer, error) {
+	cleanChunk := bytes.Trim(bytes.TrimSpace(chunk), "[], \n\r\t")
+	if len(cleanChunk) == 0 {
 		return nil, nil, nil
 	}
 
+	buf := wrapPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	buf.Grow(len(cleanChunk) + 2)
+	buf.WriteByte('[')
+	buf.Write(cleanChunk)
+	buf.WriteByte(']')
+
 	var records []models.NetflowRecord
 
-	if err := json.Unmarshal(wrapped, &records); err != nil {
-		return nil, wrapped, err
+	if err := json.Unmarshal(buf.Bytes(), &records); err != nil {
+		return nil, buf, err
 	}
 
-	return records, nil, nil
+	return records, buf, nil
 }

@@ -18,7 +18,7 @@ type MockScanner struct {
 	Err    error
 }
 
-func (m *MockScanner) StreamNetflow(r io.Reader, fn func(models.NetflowRecord)) error {
+func (m *MockScanner) StreamNetflow(r io.Reader, fn func([]models.NetflowRecord)) error {
 	m.Called = true
 	return m.Err
 }
@@ -35,7 +35,7 @@ func TestIngestor_ProcessInput(t *testing.T) {
 		path := filepath.Join(tmpDir, "test.json")
 		os.WriteFile(path, []byte("{}"), 0644)
 
-		err := i.ProcessInput(path, func(r models.NetflowRecord) {})
+		err := i.ProcessInput(path, func(r []models.NetflowRecord) {})
 		if err != nil {
 			t.Errorf("Expected success, got err: %v", err)
 		}
@@ -50,7 +50,7 @@ func TestIngestor_ProcessInput(t *testing.T) {
 		path := filepath.Join(tmpDir, "UPPER.JSON")
 		os.WriteFile(path, []byte("{}"), 0644)
 
-		err := i.ProcessInput(path, func(r models.NetflowRecord) {})
+		err := i.ProcessInput(path, func(r []models.NetflowRecord) {})
 		if err != nil {
 			t.Errorf("Ingestor failed uppercase extension check: %v", err)
 		}
@@ -93,7 +93,7 @@ func TestJSONScanner_Bridge(t *testing.T) {
 	t.Run("Verify Execution Path", func(t *testing.T) {
 		r := strings.NewReader(`[]`)
 
-		err := s.StreamNetflow(r, func(record models.NetflowRecord) {
+		err := s.StreamNetflow(r, func(record []models.NetflowRecord) {
 		})
 
 		if err != nil {
