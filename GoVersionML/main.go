@@ -43,9 +43,7 @@ func run() error {
 	}
 	fmt.Fprintf(out, "Scanning %s with XGBoost...\n", appConfig.NetflowPath)
 
-	flowIngestor := &ingest.Ingestor{
-		NetflowScanner: &ingest.JSONScanner{},
-	}
+	flowIngestor := ingest.NewIngestor()
 
 	err = flowIngestor.ProcessInput(appConfig.NetflowPath, detector.ProcessRecords)
 	if err != nil {
