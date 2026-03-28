@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-const chunkSize = 16 * 1024 * 1024
+const chunkSize = 16 * 1024 * 1024 / 8 // dit moet configurable worden per cpu. op mijn 7800x3d gaat die goed op 2mb
 
 var chunkPool = sync.Pool{
 	New: func() interface{} {
