@@ -76,7 +76,7 @@ func (d *Detector) updateMaxWindowAndFlush(win int64) {
 		if d.currentWindow.CompareAndSwap(curr, win) {
 			// We advanced the global maximum window.
 			// Flush data older than (maxWindow - 10 minutes)
-			d.flushOldWindows(win - 600)
+			d.flushOldWindows(win - 300)
 			break
 		}
 		curr = d.currentWindow.Load()
