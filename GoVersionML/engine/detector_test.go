@@ -28,6 +28,7 @@ func TestDetector_CalculateResults_Empty(t *testing.T) {
 	d := &Detector{
 		aggregator: NewAggregator(),
 		model:      &MockModel{},
+		maxProbs:   make(map[string]float64),
 	}
 
 	results := d.CalculateResults()
@@ -93,6 +94,7 @@ func TestCalculateResults_LoggingAndContinue(t *testing.T) {
 	d := &Detector{
 		aggregator: NewAggregator(),
 		model:      mock,
+		maxProbs:   make(map[string]float64),
 	}
 
 	// Setup two unique IPs in the aggregator via Update

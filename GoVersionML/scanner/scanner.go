@@ -66,6 +66,10 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) err
 	var firstErr error
 	var wgResults sync.WaitGroup
 
+	// Use a semaphore to bound the number of concurrent processFn goroutines
+	// to avoid massive memory bloat from queued slices.
+	sem := make(chan struct{}, numWorkers)
+
 	for res := range resultsChan {
 		if res.err != nil {
 			if firstErr == nil {
@@ -74,7 +78,9 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) err
 			continue
 		}
 		wgResults.Add(1)
+		sem <- struct{}{} // Acquire token
 		go func(records []models.NetflowRecord) {
+			defer func() { <-sem }() // Release token
 			processFn(records)
 			wgResults.Done()
 		}(res.records)

@@ -10,13 +10,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/axiomhq/hyperloglog"
+
 	"goversion/models"
 )
 
 type IPStats struct {
 	IP                 string
 	FlowCount          int
-	UniqueDstIPs       map[string]struct{}
+	UniqueDstIPs       *hyperloglog.Sketch
 	UniqueDstPorts     map[int]struct{}
 	OutboundDstPorts   map[int]struct{}
 	InboundDstPorts    map[int]struct{}
@@ -34,7 +36,7 @@ type IPStats struct {
 
 func NewIPStats() *IPStats {
 	return &IPStats{
-		UniqueDstIPs:     make(map[string]struct{}),
+		UniqueDstIPs:     hyperloglog.New14(),
 		UniqueDstPorts:   make(map[int]struct{}),
 		OutboundDstPorts: make(map[int]struct{}),
 		InboundDstPorts:  make(map[int]struct{}),
@@ -150,9 +152,15 @@ func (a *Aggregator) AllIPStats() []*IPStats {
 
 func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time) {
 	stats.FlowCount++
-	stats.UniqueDstIPs[record.Dst4Addr] = struct{}{}
-	stats.UniqueDstPorts[record.DstPort] = struct{}{}
-	stats.OutboundDstPorts[record.DstPort] = struct{}{}
+	stats.UniqueDstIPs.Insert([]byte(record.Dst4Addr))
+
+	if len(stats.UniqueDstPorts) < 1000 {
+		stats.UniqueDstPorts[record.DstPort] = struct{}{}
+	}
+	if len(stats.OutboundDstPorts) < 1000 {
+		stats.OutboundDstPorts[record.DstPort] = struct{}{}
+	}
+
 	stats.TotalBytes += float64(record.InBytes)
 	stats.TotalPackets += float64(record.InPackets)
 
@@ -180,13 +188,30 @@ func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRe
 }
 
 func updateInboundStats(stats *IPStats, record models.NetflowRecord) {
-	stats.InboundDstPorts[record.DstPort] = struct{}{}
+	if len(stats.InboundDstPorts) < 1000 {
+		stats.InboundDstPorts[record.DstPort] = struct{}{}
+	}
 }
 
 func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord, first time.Time) {
+	// For botnets, random ports or vast numbers of unique targets cause massive map bloat.
+	// We cap the TargetStartTimes map size per IP to 100 unique targets.
+	// Since machine learning only needs a statistical sample of inter-arrival times,
+	// tracking 100 random specific target-port combinations is statistically sufficient.
 	tKey := TargetKey{IP: record.Dst4Addr, Port: record.DstPort}
-	s.TargetStartTimes[tKey] = append(s.TargetStartTimes[tKey], float64(first.UnixNano())/1e9)
 
+	if _, exists := s.TargetStartTimes[tKey]; !exists {
+		if len(s.TargetStartTimes) >= 100 {
+			// Do not track more than 100 unique target combinations
+			goto updateDuration
+		}
+	}
+
+	if len(s.TargetStartTimes[tKey]) < 5000 {
+		s.TargetStartTimes[tKey] = append(s.TargetStartTimes[tKey], float64(first.UnixNano())/1e9)
+	}
+
+updateDuration:
 	if last, ok := a.parseTimestamp(record.Last); ok {
 		duration := last.Sub(first).Seconds()
 		if duration < 0 {
@@ -220,27 +245,27 @@ func (s *IPStats) ToMLVector() []float64 {
 
 	//Pack and return the array — order matches extract_features_v2.py
 	return []float64{
-		fc,                             // 0:  flow_count
-		float64(len(s.UniqueDstIPs)),   // 1:  unique_dst_ips
-		float64(len(s.UniqueDstPorts)), // 2:  unique_dst_ports
-		s.TotalBytes,                   // 3:  total_bytes
-		s.TotalPackets,                 // 4:  total_packets
-		s.TotalBytes / fc,              // 5:  avg_bytes_per_flow
-		s.TotalPackets / fc,            // 6:  avg_packets_per_flow
-		(s.TCPCount / fc) * 100.0,      // 7:  pct_tcp
-		(s.UDPCount / fc) * 100.0,      // 8:  pct_udp
-		(s.ICMPCount / fc) * 100.0,     // 9:  pct_icmp
-		pctWellKnownPorts,              // 10: pct_well_known_ports
-		100.0 - pctWellKnownPorts,      // 11: pct_high_ports
-		s.SumDurationSec / fc,          // 12: avg_duration
-		iatMean,                        // 13: iat_mean
-		iatVar,                         // 14: iat_variance
-		portSymmetry,                   // 15: port_symmetry
-		float64(len(s.UniqueDstIPs)) / uniquePorts, // 16: ip_port_ratio
-		s.TotalBytes / totalPackets,                // 17: avg_payload_per_packet
-		(s.SynOnlyCount / fc) * 100.0,              // 18: pct_syn_only
-		(s.RstCount / fc) * 100.0,                  // 19: pct_rst
-		iatCV,                                      // 20: iat_cv
+		fc,                                 // 0:  flow_count
+		float64(s.UniqueDstIPs.Estimate()), // 1:  unique_dst_ips
+		float64(len(s.UniqueDstPorts)),     // 2:  unique_dst_ports
+		s.TotalBytes,                       // 3:  total_bytes
+		s.TotalPackets,                     // 4:  total_packets
+		s.TotalBytes / fc,                  // 5:  avg_bytes_per_flow
+		s.TotalPackets / fc,                // 6:  avg_packets_per_flow
+		(s.TCPCount / fc) * 100.0,          // 7:  pct_tcp
+		(s.UDPCount / fc) * 100.0,          // 8:  pct_udp
+		(s.ICMPCount / fc) * 100.0,         // 9:  pct_icmp
+		pctWellKnownPorts,                  // 10: pct_well_known_ports
+		100.0 - pctWellKnownPorts,          // 11: pct_high_ports
+		s.SumDurationSec / fc,              // 12: avg_duration
+		iatMean,                            // 13: iat_mean
+		iatVar,                             // 14: iat_variance
+		portSymmetry,                       // 15: port_symmetry
+		float64(s.UniqueDstIPs.Estimate()) / uniquePorts, // 16: ip_port_ratio
+		s.TotalBytes / totalPackets,                      // 17: avg_payload_per_packet
+		(s.SynOnlyCount / fc) * 100.0,                    // 18: pct_syn_only
+		(s.RstCount / fc) * 100.0,                        // 19: pct_rst
+		iatCV,                                            // 20: iat_cv
 	}
 }
 
