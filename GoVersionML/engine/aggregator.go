@@ -300,3 +300,20 @@ func (s *IPStats) calculateIATMetrics() (mean float64, variance float64, cv floa
 
 	return mean, variance, cv
 }
+
+// ExtractAndFlushBefore removes and returns all IPStats from windows older than the specified timestamp
+func (a *Aggregator) ExtractAndFlushBefore(window int64) []*IPStats {
+	var flushed []*IPStats
+	for i := 0; i < numShards; i++ {
+		shard := a.shards[i]
+		shard.Lock()
+		for key, stats := range shard.IPs {
+			if key.Window < window {
+				flushed = append(flushed, stats)
+				delete(shard.IPs, key)
+			}
+		}
+		shard.Unlock()
+	}
+	return flushed
+}
