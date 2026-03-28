@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+
 	"testing"
 
 	"goversion/models"
@@ -27,7 +28,7 @@ func TestIsArray(t *testing.T) {
 		if !isArr {
 			t.Errorf("expected isArr=true")
 		}
-		
+
 		// Check the returned reader still contains the full data
 		b, _ := io.ReadAll(reader)
 		if string(b) != "[{}, {}]" {
@@ -54,18 +55,14 @@ func TestIsArray(t *testing.T) {
 	t.Run("Empty Stream", func(t *testing.T) {
 		r := strings.NewReader("")
 		isArr, reader, err := isArray(r)
-		if err != nil {
-			t.Fatalf("unexpected err: %v", err)
+		if err == nil {
+			t.Fatalf("expected error for empty stream, got nil")
 		}
 		if isArr {
 			t.Errorf("expected false for empty")
 		}
-		
-		// Reading from stream should be EOF
-		b := make([]byte, 1)
-		_, readErr := reader.Read(b)
-		if readErr != io.EOF {
-			t.Errorf("expected EOF, got %v", readErr)
+		if reader != nil {
+			t.Errorf("expected nil reader on error")
 		}
 	})
 
@@ -73,8 +70,8 @@ func TestIsArray(t *testing.T) {
 		expectedErr := errors.New("mock read error")
 		r := &errReader{err: expectedErr}
 		isArr, _, err := isArray(r)
-		if err != expectedErr {
-			t.Errorf("expected %v, got %v", expectedErr, err)
+		if err == nil || !strings.Contains(err.Error(), "mock read error") {
+			t.Errorf("expected wrapped mock read error, got %v", err)
 		}
 		if isArr {
 			t.Errorf("expected isArr=false on error")
@@ -141,18 +138,18 @@ func TestStreamNetflow(t *testing.T) {
 	t.Run("Empty Input", func(t *testing.T) {
 		r := strings.NewReader("")
 		err := StreamNetflow(r, func(records []models.NetflowRecord) {})
-		if err != nil {
-			t.Errorf("Empty input should not error, got %v", err)
+		if err == nil || err.Error() != "input stream is empty" {
+			t.Errorf("Empty input should return stream empty error, got %v", err)
 		}
 	})
 
 	t.Run("Read Error Initial IsArray", func(t *testing.T) {
 		expectedErr := errors.New("mock read error initial")
 		r := &errReader{err: expectedErr}
-		
+
 		err := StreamNetflow(r, func(records []models.NetflowRecord) {})
-		if err != expectedErr {
-			t.Errorf("expected %v, got %v", expectedErr, err)
+		if err == nil || !strings.Contains(err.Error(), expectedErr.Error()) {
+			t.Errorf("expected wrapped %v, got %v", expectedErr, err)
 		}
 	})
 

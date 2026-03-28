@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"sync"
 
@@ -18,10 +19,10 @@ func isArray(stream io.Reader) (bool, io.Reader, error) {
 	buf := make([]byte, 1)
 	n, err := stream.Read(buf)
 	if err != nil && err != io.EOF {
-		return false, nil, err
+		return false, nil, fmt.Errorf("failed to peek buffer: %w", err)
 	}
-	if n == 0 {
-		return false, stream, nil
+	if n == 0 && err == io.EOF {
+		return false, nil, fmt.Errorf("input stream is empty")
 	}
 
 	isArr := buf[0] == '['
@@ -48,13 +49,13 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) err
 			wg.Add(1)
 			go processJsonArray(chunksChan, resultsChan, &wg)
 		}
-		readjsonByDelimiter(reader, chunksChan, errChan, '}')
+		go readjsonByDelimiter(reader, chunksChan, errChan, '}')
 	} else {
 		for i := 0; i < numWorkers; i++ {
 			wg.Add(1)
 			go processJsonLines(chunksChan, resultsChan, &wg)
 		}
-		readjsonByDelimiter(reader, chunksChan, errChan, '\n')
+		go readjsonByDelimiter(reader, chunksChan, errChan, '\n')
 	}
 
 	go func() {
@@ -63,6 +64,7 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) err
 	}()
 
 	var firstErr error
+	var wgResults sync.WaitGroup
 
 	for res := range resultsChan {
 		if res.err != nil {
@@ -71,8 +73,14 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) err
 			}
 			continue
 		}
-		processFn(res.records)
+		wgResults.Add(1)
+		go func(records []models.NetflowRecord) {
+			processFn(records)
+			wgResults.Done()
+		}(res.records)
 	}
+
+	wgResults.Wait()
 
 	if readerErr := <-errChan; readerErr != nil && firstErr == nil {
 		firstErr = readerErr
