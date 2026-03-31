@@ -66,7 +66,8 @@ def main():
     botnet_count = y_train.sum()
     normal_count = len(y_train) - botnet_count
     
-    scale_weight = normal_count / botnet_count if botnet_count > 0 else 1.0
+    base_weight = normal_count / botnet_count if botnet_count > 0 else 1.0
+    scale_weight = base_weight * 1.5 #dit is om het minder false negatives te laten geven door harder te straffen. 
     print(f"Training Dataset -> Normal: {normal_count:,} | Botnet: {botnet_count:,}")
     print(f"Applying scale_pos_weight = {scale_weight:.2f}")
 
