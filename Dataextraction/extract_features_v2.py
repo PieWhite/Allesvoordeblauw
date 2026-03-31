@@ -116,7 +116,7 @@ def extract_features_v2(input_path, output_path, window_size='5min'):
         'well_known_port': 'sum',
         'duration_sec': 'mean',           # avg_duration
         'iat': ['mean', 'var'],           # iat_mean, iat_variance
-        'is_botnet_flow': 'max'           # 1 if any flow in window was botnet
+        'is_botnet_flow': 'mean'          # ratio of botnet flows in window
     }
 
     grouped = df.groupby(['src4_addr', 'time_window']).agg(agg_funcs)
@@ -141,8 +141,11 @@ def extract_features_v2(input_path, output_path, window_size='5min'):
         'duration_sec_mean': 'avg_duration',
         'iat_mean': 'iat_mean',
         'iat_var': 'iat_variance',
-        'is_botnet_flow_max': 'is_botnet'
+        'is_botnet_flow_mean': 'botnet_ratio'
     })
+
+    # Require at least 10% of flows in the window to be botnet to label the window as malicious
+    grouped['is_botnet'] = (grouped['botnet_ratio'] >= 0.1).astype(int)
 
     print("Calculating final ratios and percentages (V2 Features)...")
     
@@ -150,8 +153,8 @@ def extract_features_v2(input_path, output_path, window_size='5min'):
     grouped = pd.merge(grouped, symmetry_counts, on=['src4_addr', 'time_window'], how='left')
     grouped['port_symmetry'] = grouped['port_symmetry'].fillna(0)
 
-    # Handle IAT variance NaNs
-    grouped['iat_variance'] = grouped['iat_variance'].fillna(0)
+    # Ensure IAT variance NaNs are handled natively by XGBoost, we don't fill them with 0
+    # grouped['iat_variance'] = grouped['iat_variance'].fillna(0)
     
     # Flow count denominator
     flow_counts = grouped['flow_count'].replace(0, 1) # Prevent div by zero

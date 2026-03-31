@@ -11,7 +11,7 @@ Critical parameters handled:
 import pandas as pd
 import numpy as np
 import xgboost as xgb
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedGroupKFold
 from sklearn.metrics import classification_report, confusion_matrix
 
 def main():
@@ -43,11 +43,24 @@ def main():
     X.columns = [f"f{i}" for i in range(len(feature_cols))]
     
     y = df['is_botnet']
+    
+    if 'src4_addr' not in df.columns:
+        raise ValueError("Missing 'src4_addr' column needed for Grouped split!")
+    groups = df['src4_addr']
 
-    print("Splitting data into 80% train / 20% test (Stratified)...")
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+    print("Splitting data into 80% train / 20% test (Stratified by Label, Grouped by IP)...")
+    sgkf = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
+    
+    # We just need one split of 80/20
+    train_idx, test_idx = next(sgkf.split(X, y, groups))
+    
+    X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
+    # Save the Test Set IPs so we can extract raw JSON for the Go inference engine later
+    test_ips = df.iloc[test_idx]['src4_addr'].unique()
+    pd.Series(test_ips).to_csv('test_set_ips.txt', index=False, header=False)
+    print(f"\nSaved {len(test_ips)} unique isolated Test IPs to 'test_set_ips.txt'")
 
     # 1. THE IMBALANCE FIX (scale_pos_weight)
     botnet_count = y_train.sum()
