@@ -47,6 +47,11 @@ type TargetKey struct {
 	Port int
 }
 
+const (
+	v4WindowSeconds = 300.0
+	V4FeatureCount  = 28
+)
+
 const numShards = 64
 
 type WindowKey struct {
@@ -196,15 +201,19 @@ func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord
 	}
 }
 
-// ToMLVector computes the final 21 float64 features expected by XGBoost V2.
+// ToMLVector computes the canonical V4 feature vector (base + augmentation).
+// The order mirrors DataConverter/extreme_tune_v4.py.
 func (s *IPStats) ToMLVector() []float64 {
 	fc := float64(s.FlowCount)
 	if fc == 0 {
-		return make([]float64, 21)
+		return make([]float64, V4FeatureCount)
 	}
 
 	portSymmetry := s.calculatePortSymmetry()
 	iatMean, iatVar, iatCV := s.calculateIATMetrics()
+	flowsPerSecond := fc / v4WindowSeconds
+	bytesPerSecond := s.TotalBytes / v4WindowSeconds
+	packetsPerSecond := s.TotalPackets / v4WindowSeconds
 
 	uniquePorts := float64(len(s.UniqueDstPorts))
 	if uniquePorts == 0 {
@@ -217,31 +226,62 @@ func (s *IPStats) ToMLVector() []float64 {
 	}
 
 	pctWellKnownPorts := (s.WellKnownPortCount / fc) * 100.0
+	pctTCP := (s.TCPCount / fc) * 100.0
+	pctUDP := (s.UDPCount / fc) * 100.0
+	pctSYNOnly := (s.SynOnlyCount / fc) * 100.0
+	pctRST := (s.RstCount / fc) * 100.0
+	avgDuration := s.SumDurationSec / fc
 
-	//Pack and return the array — order matches extract_features_v2.py
-	return []float64{
-		fc,                             // 0:  flow_count
-		float64(len(s.UniqueDstIPs)),   // 1:  unique_dst_ips
-		float64(len(s.UniqueDstPorts)), // 2:  unique_dst_ports
-		s.TotalBytes,                   // 3:  total_bytes
-		s.TotalPackets,                 // 4:  total_packets
-		s.TotalBytes / fc,              // 5:  avg_bytes_per_flow
-		s.TotalPackets / fc,            // 6:  avg_packets_per_flow
-		(s.TCPCount / fc) * 100.0,      // 7:  pct_tcp
-		(s.UDPCount / fc) * 100.0,      // 8:  pct_udp
-		(s.ICMPCount / fc) * 100.0,     // 9:  pct_icmp
+	// Mirror the V4 augmentation stage so inference stays aligned with training.
+	logFlowsPerSecond := math.Log1p(math.Max(flowsPerSecond, 0))
+	logBytesPerSecond := math.Log1p(math.Max(bytesPerSecond, 0))
+	logPacketsPerSecond := math.Log1p(math.Max(packetsPerSecond, 0))
+	tcpUDPGap := pctTCP - pctUDP
+	synRSTGap := pctSYNOnly - pctRST
+	iatStd := -1.0
+	if iatVar >= 0 {
+		iatStd = math.Sqrt(math.Max(iatVar, 0))
+	}
+	durationFlowInteraction := avgDuration * flowsPerSecond
+
+	vec := []float64{
+		flowsPerSecond,                 // 0: flows_per_second
+		bytesPerSecond,                 // 1: bytes_per_second
+		packetsPerSecond,               // 2: packets_per_second
+		float64(len(s.UniqueDstIPs)),   // 3: unique_dst_ips
+		float64(len(s.UniqueDstPorts)), // 4: unique_dst_ports
+		s.TotalBytes / fc,              // 5: avg_bytes_per_flow
+		s.TotalPackets / fc,            // 6: avg_packets_per_flow
+		pctTCP,                         // 7: pct_tcp
+		pctUDP,                         // 8: pct_udp
+		(s.ICMPCount / fc) * 100.0,     // 9: pct_icmp
 		pctWellKnownPorts,              // 10: pct_well_known_ports
 		100.0 - pctWellKnownPorts,      // 11: pct_high_ports
-		s.SumDurationSec / fc,          // 12: avg_duration
+		avgDuration,                    // 12: avg_duration
 		iatMean,                        // 13: iat_mean
 		iatVar,                         // 14: iat_variance
 		portSymmetry,                   // 15: port_symmetry
 		float64(len(s.UniqueDstIPs)) / uniquePorts, // 16: ip_port_ratio
 		s.TotalBytes / totalPackets,                // 17: avg_payload_per_packet
-		(s.SynOnlyCount / fc) * 100.0,              // 18: pct_syn_only
-		(s.RstCount / fc) * 100.0,                  // 19: pct_rst
+		pctSYNOnly,                                 // 18: pct_syn_only
+		pctRST,                                     // 19: pct_rst
 		iatCV,                                      // 20: iat_cv
+		logFlowsPerSecond,                          // 21: log_flows_per_second
+		logBytesPerSecond,                          // 22: log_bytes_per_second
+		logPacketsPerSecond,                        // 23: log_packets_per_second
+		tcpUDPGap,                                  // 24: tcp_udp_gap
+		synRSTGap,                                  // 25: syn_rst_gap
+		iatStd,                                     // 26: iat_std
+		durationFlowInteraction,                    // 27: duration_flow_interaction
 	}
+
+	for i, val := range vec {
+		if math.IsNaN(val) || math.IsInf(val, 0) {
+			vec[i] = -1.0
+		}
+	}
+
+	return vec
 }
 
 func (s *IPStats) calculatePortSymmetry() float64 {
@@ -255,27 +295,23 @@ func (s *IPStats) calculatePortSymmetry() float64 {
 }
 
 func (s *IPStats) calculateIATMetrics() (mean float64, variance float64, cv float64) {
-	totalItems := len(s.TargetStartTimes) // for the fillna(0) zeros
-	for _, times := range s.TargetStartTimes {
-		if len(times) > 1 {
-			totalItems += len(times) - 1
-		}
-	}
-
-	allDiffs := make([]float64, 0, totalItems)
+	allDiffs := make([]float64, 0)
 
 	for _, times := range s.TargetStartTimes {
-		allDiffs = append(allDiffs, 0) // Match Python fillna(0)
 		if len(times) > 1 {
 			sort.Float64s(times)
 			for i := 1; i < len(times); i++ {
-				allDiffs = append(allDiffs, times[i]-times[i-1])
+				delta := times[i] - times[i-1]
+				if delta < 0 {
+					delta = 0
+				}
+				allDiffs = append(allDiffs, delta)
 			}
 		}
 	}
 
 	if len(allDiffs) == 0 {
-		return 0, 0, 0
+		return -1.0, -1.0, -1.0
 	}
 
 	var sumDiffs float64
@@ -284,18 +320,25 @@ func (s *IPStats) calculateIATMetrics() (mean float64, variance float64, cv floa
 	}
 	mean = sumDiffs / float64(len(allDiffs))
 
-	// (ddof=1, matches pandas .var() default)
+	// ddof=1, matches pandas .var() default.
+	variance = -1.0
 	var sumSqDiff float64
 	for _, d := range allDiffs {
 		sumSqDiff += (d - mean) * (d - mean)
 	}
 	if len(allDiffs) > 1 {
 		variance = sumSqDiff / float64(len(allDiffs)-1)
+		if variance < 0 && variance > -1e-12 {
+			variance = 0
+		}
 	}
 
-	// Calculate CV
-	if mean > 0 {
+	if mean == 0 {
+		cv = 0
+	} else if variance >= 0 {
 		cv = math.Sqrt(variance) / mean
+	} else {
+		cv = -1.0
 	}
 
 	return mean, variance, cv

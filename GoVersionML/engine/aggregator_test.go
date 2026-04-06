@@ -166,20 +166,20 @@ func TestIAT_Math_Precision(t *testing.T) {
 	s := NewIPStats()
 	target := TargetKey{IP: "8.8.8.8", Port: 53}
 
-	// Times: 10.0, 12.0.
-	// Diffs: [0, 2.0]
-	s.TargetStartTimes[target] = []float64{10.0, 12.0}
+	// Times: 10.0, 12.0, 15.0.
+	// Diffs: [2.0, 3.0]
+	s.TargetStartTimes[target] = []float64{10.0, 12.0, 15.0}
 
 	mean, variance, cv := s.calculateIATMetrics()
 
-	if mean != 1.0 {
-		t.Errorf("expected mean 1.0, got %v", mean)
+	if math.Abs(mean-2.5) > 1e-9 {
+		t.Errorf("expected mean 2.5, got %v", mean)
 	}
-	if variance != 2.0 {
-		t.Errorf("expected variance 2.0, got %v", variance)
+	if math.Abs(variance-0.5) > 1e-9 {
+		t.Errorf("expected variance 0.5, got %v", variance)
 	}
-	if math.Abs(cv-1.41421356) > 1e-7 {
-		t.Errorf("expected CV ~1.4142, got %v", cv)
+	if math.Abs(cv-0.282842712) > 1e-7 {
+		t.Errorf("expected CV ~0.2828, got %v", cv)
 	}
 }
 
@@ -189,11 +189,18 @@ func TestToMLVector_Sanitization(t *testing.T) {
 	s.FlowCount = 5
 
 	vec := s.ToMLVector()
+	if len(vec) != V4FeatureCount {
+		t.Fatalf("expected vector size %d, got %d", V4FeatureCount, len(vec))
+	}
 
 	for i, val := range vec {
 		if math.IsNaN(val) || math.IsInf(val, 0) {
 			t.Errorf("Index %d is non-finite: %v", i, val)
 		}
+	}
+
+	if vec[13] != -1 || vec[14] != -1 || vec[20] != -1 || vec[26] != -1 {
+		t.Errorf("expected missing IAT family to map to -1, got mean=%v var=%v cv=%v std=%v", vec[13], vec[14], vec[20], vec[26])
 	}
 
 	if vec[16] != 0 {

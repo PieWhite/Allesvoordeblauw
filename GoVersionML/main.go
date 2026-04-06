@@ -37,7 +37,7 @@ func run() error {
 	}
 	defer cleanup()
 
-	detector, err := engine.NewDetector(appConfig.ModelPath)
+	detector, err := engine.NewDetectorWithFeatureMap(appConfig.ModelPath, appConfig.FeatureMapPath)
 	if err != nil {
 		return fmt.Errorf("Failed loading xgboost model %w", err)
 	}

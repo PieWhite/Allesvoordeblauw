@@ -8,9 +8,10 @@ import (
 // AppConfig holds the configuration state for the application.
 // This struct encapsulates configuration, replacing the loose global parsing.
 type AppConfig struct {
-	ModelPath   string
-	OutputFile  string
-	NetflowPath string
+	ModelPath      string
+	FeatureMapPath string
+	OutputFile     string
+	NetflowPath    string
 }
 
 // ParseFlags reads command-line flags and arguments, populating the AppConfig.
@@ -19,7 +20,8 @@ type AppConfig struct {
 func (c *AppConfig) ParseArgs(args []string) error {
 	fs := flag.NewFlagSet("config", flag.ContinueOnError)
 
-	fs.StringVar(&c.ModelPath, "m", "./Xgboost/botnet_xgboost.json", "Path to XGBoost JSON: -m ./Xgboost/your-xgboost-name.json")
+	fs.StringVar(&c.ModelPath, "m", "./Xgboost/xgboostv4.json", "Path to XGBoost JSON: -m ./Xgboost/your-xgboost-name.json")
+	fs.StringVar(&c.FeatureMapPath, "fmap", "./Xgboost/xgboostv4.fmap", "Path to XGBoost feature map: -fmap ./Xgboost/xgboostv4.fmap")
 	fs.StringVar(&c.OutputFile, "o", "", "Write results to a text file: -o yourresults.txt")
 
 	if err := fs.Parse(args); err != nil {

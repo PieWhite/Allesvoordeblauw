@@ -41,6 +41,19 @@ func NewDetector(modelPath string) (*Detector, error) {
 	}, nil
 }
 
+func NewDetectorWithFeatureMap(modelPath, featureMapPath string) (*Detector, error) {
+	loadedModel, err := xgboost.LoadXGBoostFromJSON(modelPath, featureMapPath, 1, 6, &activation.Logistic{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load model: %w", err)
+	}
+
+	return &Detector{
+		aggregator: NewAggregator(),
+		model:      loadedModel,
+		maxProbs:   make(map[string]float64),
+	}, nil
+}
+
 func (d *Detector) ProcessRecord(record models.NetflowRecord) {
 	atomic.AddInt64(&d.TotalRecords, 1)
 	d.aggregator.Update(record)

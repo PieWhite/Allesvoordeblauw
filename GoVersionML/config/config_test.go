@@ -12,15 +12,17 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 		args        []string
 		wantNetflow string
 		wantModel   string
+		wantFMap    string
 		wantOutput  string
 		wantErr     error // We use the specific error type for help checks
 		wantErrStr  string
 	}{
 		{
 			name:        "Valid: all flags and argument",
-			args:        []string{"-m", "custom_model.json", "-o", "results.txt", "data.json"},
+			args:        []string{"-m", "custom_model.json", "-fmap", "custom_model.fmap", "-o", "results.txt", "data.json"},
 			wantNetflow: "data.json",
 			wantModel:   "custom_model.json",
+			wantFMap:    "custom_model.fmap",
 			wantOutput:  "results.txt",
 			wantErr:     nil,
 		},
@@ -28,7 +30,8 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 			name:        "Valid: defaults used",
 			args:        []string{"input.json"},
 			wantNetflow: "input.json",
-			wantModel:   "./Xgboost/botnet_xgboost.json",
+			wantModel:   "./Xgboost/xgboostv4.json",
+			wantFMap:    "./Xgboost/xgboostv4.fmap",
 			wantOutput:  "",
 			wantErr:     nil,
 		},
@@ -89,6 +92,9 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 			}
 			if cfg.ModelPath != tt.wantModel {
 				t.Errorf("ModelPath = %q, want %q", cfg.ModelPath, tt.wantModel)
+			}
+			if cfg.FeatureMapPath != tt.wantFMap {
+				t.Errorf("FeatureMapPath = %q, want %q", cfg.FeatureMapPath, tt.wantFMap)
 			}
 			if cfg.OutputFile != tt.wantOutput {
 				t.Errorf("OutputFile = %q, want %q", cfg.OutputFile, tt.wantOutput)
