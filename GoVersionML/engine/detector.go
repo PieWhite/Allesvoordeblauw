@@ -63,7 +63,7 @@ func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
 			hour := int(s[11]-'0')*10 + int(s[12]-'0')
 			minute := int(s[14]-'0')*10 + int(s[15]-'0')
 			second := int(s[17]-'0')*10 + int(s[18]-'0')
-			
+
 			t := time.Date(year, time.Month(month), day, hour, minute, second, 0, time.UTC)
 			win := t.Truncate(5 * time.Minute).Unix()
 			if win > localMaxWindow {
@@ -72,9 +72,9 @@ func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
 		}
 	}
 
-	if localMaxWindow > 0 {
-		d.updateMaxWindowAndFlush(localMaxWindow)
-	}
+	// if localMaxWindow > 0 {
+	// 	d.updateMaxWindowAndFlush(localMaxWindow)
+	// }
 }
 
 func (d *Detector) updateMaxWindowAndFlush(win int64) {
@@ -133,7 +133,7 @@ func (d *Detector) evaluateBatch(statsBatch []*IPStats) {
 		}
 		prob := float64((*vPtr)[0])
 		ip := statsBatch[idx].IP
-		
+
 		if currentMax, exists := d.maxProbs[ip]; !exists || prob > currentMax {
 			d.maxProbs[ip] = prob
 		}
