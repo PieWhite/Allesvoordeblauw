@@ -1,0 +1,9 @@
+Option 1: Save a Baseline (Before you make changes)
+
+powershell
+.\Run-Benchmark.ps1 -SaveBaseline
+
+Option 2: Compare Changes (After you try a new optimization)
+
+powershell
+.\Run-Benchmark.ps1 -Compare
