@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
+	"runtime/pprof"
 	"time"
 
 	"goversion/config"
@@ -31,6 +33,19 @@ func run(args []string) error {
 		return err
 	}
 
+	// Start CPU profile if flag is set
+	if appConfig.CpuProfile != "" {
+		f, err := os.Create(appConfig.CpuProfile)
+		if err != nil {
+			return fmt.Errorf("could not create CPU profile: %w", err)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			f.Close()
+			return fmt.Errorf("could not start CPU profile: %w", err)
+		}
+		defer pprof.StopCPUProfile()
+		defer f.Close()
+	}
 
 	out, cleanup, err := output.Setup(appConfig.OutputFile)
 	if err != nil {
@@ -58,6 +73,18 @@ func run(args []string) error {
 		fmt.Printf("Results written to: %s\n", appConfig.OutputFile)
 	}
 
+	// Save memory profile if flag is set
+	if appConfig.MemProfile != "" {
+		f, err := os.Create(appConfig.MemProfile)
+		if err != nil {
+			return fmt.Errorf("could not create memory profile: %w", err)
+		}
+		defer f.Close()
+		runtime.GC() // Get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			return fmt.Errorf("could not write memory profile: %w", err)
+		}
+	}
 
 	return nil
 }

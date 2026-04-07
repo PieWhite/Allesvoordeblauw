@@ -7,3 +7,14 @@ Option 2: Compare Changes (After you try a new optimization)
 
 powershell
 .\Run-Benchmark.ps1 -Compare
+
+
+
+///////
+
+pprof:
+
+go run . -cpuprofile cpu.prof -memprofile mem.prof ..\test_netflow.json
+
+voor cpu go tool pprof -http=:8080 cpu.prof
+voor mem go tool pprof -http=:8080 mem.prof
