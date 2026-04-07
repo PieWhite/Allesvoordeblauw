@@ -14,3 +14,19 @@ Scripts/rules/c2_known_proxies.yar
 Scripts/rules/c2_suspicious_ports.yar
 Scripts/test_netflow copy.json
 Scripts/test_netflow.json
+.agents/rules/qualitycontroll.md
+1-Neris-20110810.binetflow.csv
+1-Neris-20110810.binetflow.json
+capture20110810.binetflow
+capture20110810.json
+goedvoorTO.md.resolved
+GoVersionML/current_benchmark.txt
+GoVersionML/test_netflow.json
+.agents/rules/qualitycontroll.md
+1-Neris-20110810.binetflow.csv
+1-Neris-20110810.binetflow.json
+capture20110810.binetflow
+capture20110810.json
+goedvoorTO.md.resolved
+GoVersionML/current_benchmark.txt
+GoVersionML/test_netflow.json
