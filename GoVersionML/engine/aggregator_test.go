@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"fmt"
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +14,15 @@ import (
 func parseTimeHelper(s string) time.Time {
 	t, _ := time.Parse("2006-01-02T15:04:05.000", s)
 	return t
+}
+
+func getStatsForIP(a *Aggregator, ip string) *IPStats {
+	for _, s := range a.AllIPStats() {
+		if s.IP == ip {
+			return s
+		}
+	}
+	return nil
 }
 
 // TestParseTimestamp_Boundary checks the ISO-like format and internal state.
@@ -55,15 +66,13 @@ func TestAggregator_Update_DataIntegrity(t *testing.T) {
 
 	a.Update(rec)
 
-	if len(a.IPs) != 2 {
-		t.Errorf("expected 2 IP stats entries, got %d", len(a.IPs))
+	allStats := a.AllIPStats()
+	if len(allStats) != 2 {
+		t.Errorf("expected 2 IP stats entries, got %d", len(allStats))
 	}
 
-	expectedTime := time.Date(2026, 3, 17, 10, 0, 0, 0, time.UTC)
-	srcKey := getTimeWindowKey("10.0.0.1", expectedTime)
-
-	srcStats, exists := a.IPs[srcKey]
-	if !exists {
+	srcStats := getStatsForIP(a, "10.0.0.1")
+	if srcStats == nil {
 		t.Fatal("Source IP stats not found in aggregator")
 	}
 
@@ -71,9 +80,11 @@ func TestAggregator_Update_DataIntegrity(t *testing.T) {
 		t.Errorf("Source stats mismatch: bytes=%v, flows=%v", srcStats.TotalBytes, srcStats.FlowCount)
 	}
 
-	dstKey := getTimeWindowKey("192.168.1.1", expectedTime)
-	dstStats := a.IPs[dstKey]
-	if !dstStats.InboundDstPorts[443] {
+	dstStats := getStatsForIP(a, "192.168.1.1")
+	if dstStats == nil {
+		t.Fatal("Destination IP stats not found in aggregator")
+	}
+	if _, ok := dstStats.InboundDstPorts[443]; !ok {
 		t.Error("Destination inbound port 443 was not tracked")
 	}
 }
@@ -92,7 +103,7 @@ func TestUpdate_ProtocolsAndFlags(t *testing.T) {
 		a.Update(r)
 	}
 
-	stats := a.getIPStats("1.1.1.1", parseTimeHelper("2026-03-17T12:00:00.000"))
+	stats := getStatsForIP(a, "1.1.1.1")
 
 	if stats.UDPCount != 1 {
 		t.Errorf("Expected UDPCount 1, got %v", stats.UDPCount)
@@ -115,7 +126,7 @@ func TestUpdate_DurationClamping(t *testing.T) {
 	}
 
 	a.Update(rec)
-	stats := a.getIPStats("1.1.1.1", parseTimeHelper(rec.First))
+	stats := getStatsForIP(a, "1.1.1.1")
 
 	if stats.SumDurationSec != 0 {
 		t.Errorf("Expected clamped duration 0, got %v", stats.SumDurationSec)
@@ -142,7 +153,7 @@ func TestPortSymmetry(t *testing.T) {
 		First:    ts,
 	})
 
-	stats := a.getIPStats("10.0.0.1", parseTimeHelper(ts))
+	stats := getStatsForIP(a, "10.0.0.1")
 	symmetry := stats.calculatePortSymmetry()
 
 	if symmetry != 1 {
@@ -153,7 +164,7 @@ func TestPortSymmetry(t *testing.T) {
 // TestIAT_Math_Precision verifies the Python-style variance calculation.
 func TestIAT_Math_Precision(t *testing.T) {
 	s := NewIPStats()
-	target := "8.8.8.8:53"
+	target := TargetKey{IP: "8.8.8.8", Port: 53}
 
 	// Times: 10.0, 12.0.
 	// Diffs: [0, 2.0]
@@ -187,5 +198,50 @@ func TestToMLVector_Sanitization(t *testing.T) {
 
 	if vec[16] != 0 {
 		t.Errorf("Feature 16 (ip_port_ratio) expected 0, got %v", vec[16])
+	}
+}
+
+// TestAggregator_Concurrency hammers the aggregator from many goroutines to ensure thread safety
+func TestAggregator_Concurrency(t *testing.T) {
+	a := NewAggregator()
+	var wg sync.WaitGroup
+	numWorkers := 100
+	recordsPerWorker := 1000
+
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for j := 0; j < recordsPerWorker; j++ {
+				// High contention target (all workers write here)
+				a.Update(models.NetflowRecord{
+					Src4Addr: "10.0.0.1",
+					First:    "2026-03-17T12:00:00.000",
+					InBytes:  10,
+				})
+				// Low contention target (one worker writes here)
+				a.Update(models.NetflowRecord{
+					Src4Addr: fmt.Sprintf("10.1.0.%d", w),
+					First:    "2026-03-17T12:00:00.000",
+					InBytes:  20,
+				})
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	stats := getStatsForIP(a, "10.0.0.1")
+	if stats == nil {
+		t.Fatal("Expected stats for 10.0.0.1")
+	}
+
+	expectedFlows := numWorkers * recordsPerWorker
+	expectedBytes := float64(expectedFlows * 10)
+
+	if stats.FlowCount != expectedFlows {
+		t.Errorf("Expected %d flows, got %d", expectedFlows, stats.FlowCount)
+	}
+	if stats.TotalBytes != expectedBytes {
+		t.Errorf("Expected %v bytes, got %v", expectedBytes, stats.TotalBytes)
 	}
 }

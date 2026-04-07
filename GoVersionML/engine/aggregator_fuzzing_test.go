@@ -31,7 +31,7 @@ func FuzzAggregator(f *testing.F) {
 		a.Update(record)
 
 		// Verification loop
-		for _, stats := range a.IPs {
+		for _, stats := range a.AllIPStats() {
 			vec := stats.ToMLVector()
 
 			if len(vec) != 21 {

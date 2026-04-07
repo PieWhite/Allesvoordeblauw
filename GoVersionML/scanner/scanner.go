@@ -1,66 +1,90 @@
 package scanner
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
 	"io"
-
-	"github.com/goccy/go-json"
+	"sync"
 
 	"goversion/models"
+	"goversion/utils"
 )
 
-func StreamNetflow(stream io.Reader, processFn func(models.NetflowRecord)) error {
-	// We use a buffered scanner to read line-by-line
-	// This is much more resilient than a raw JSON decoder for 'dirty' data
-	reader := bufio.NewReader(stream)
-
-	// Check if it starts with an array bracket
-	peek, _ := reader.Peek(1)
-	if len(peek) > 0 && peek[0] == '[' {
-		return streamJSONArray(reader, processFn)
-	}
-
-	// Otherwise, treat as Line-Delimited JSON (NDJSON)
-	return streamNDJSON(reader, processFn)
+type result struct {
+	records []models.NetflowRecord
+	err     error
 }
 
-func streamJSONArray(r io.Reader, processFn func(models.NetflowRecord)) error {
-	decoder := json.NewDecoder(r)
-	if _, err := decoder.Token(); err != nil {
+func isArray(stream io.Reader) (bool, io.Reader, error) {
+	buf := make([]byte, 1)
+	n, err := stream.Read(buf)
+	if err != nil && err != io.EOF {
+		return false, nil, fmt.Errorf("failed to peek buffer: %w", err)
+	}
+	if n == 0 && err == io.EOF {
+		return false, nil, fmt.Errorf("input stream is empty")
+	}
+
+	isArr := buf[0] == '['
+
+	return isArr, io.MultiReader(bytes.NewReader(buf[:n]), stream), nil
+}
+
+func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) error {
+	isArr, reader, err := isArray(stream)
+	if err != nil {
 		return err
-	} // Skip '['
-
-	for decoder.More() {
-		var record models.NetflowRecord
-		if err := decoder.Decode(&record); err != nil {
-			// In an array, we MUST stop here to avoid infinite loops
-			return fmt.Errorf("json array corruption: %w", err)
-		}
-		processFn(record)
 	}
-	return nil
-}
 
-func streamNDJSON(r io.Reader, processFn func(models.NetflowRecord)) error {
-	scanner := bufio.NewScanner(r)
+	numWorkers := utils.OptimalWorkerCount()
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue // Skip empty lines
+	chunksChan := make(chan []byte, numWorkers*2)
+	resultsChan := make(chan result, numWorkers*2)
+	errChan := make(chan error, 1)
+
+	var wg sync.WaitGroup
+
+	if isArr {
+		for i := 0; i < numWorkers; i++ {
+			wg.Add(1)
+			go processJsonArray(chunksChan, resultsChan, &wg)
 		}
+		go readjsonByDelimiter(reader, chunksChan, errChan, '}')
+	} else {
+		for i := 0; i < numWorkers; i++ {
+			wg.Add(1)
+			go processJsonLines(chunksChan, resultsChan, &wg)
+		}
+		go readjsonByDelimiter(reader, chunksChan, errChan, '\n')
+	}
 
-		var record models.NetflowRecord
-		if err := json.Unmarshal(line, &record); err != nil {
-			// ARCHITECTURE WIN:
-			// Because we are line-based, a failure here doesn't break the 'eye'
-			// of the reader. We just log and move to the next physical line.
-			fmt.Printf("Skipping malformed NDJSON line: %v\n", err)
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+
+	var firstErr error
+	var wgResults sync.WaitGroup
+
+	for res := range resultsChan {
+		if res.err != nil {
+			if firstErr == nil {
+				firstErr = res.err
+			}
 			continue
 		}
-		processFn(record)
+		wgResults.Add(1)
+		go func(records []models.NetflowRecord) {
+			processFn(records)
+			wgResults.Done()
+		}(res.records)
 	}
 
-	return scanner.Err()
+	wgResults.Wait()
+
+	if readerErr := <-errChan; readerErr != nil && firstErr == nil {
+		firstErr = readerErr
+	}
+
+	return firstErr
 }
