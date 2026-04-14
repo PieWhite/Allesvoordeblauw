@@ -9,6 +9,7 @@ import (
 
 	"goversion/models"
 	"goversion/scanner"
+	"goversion/NetflowScanner"
 )
 
 type ScannerInterface interface {
@@ -23,6 +24,12 @@ func (js *JSONScanner) StreamRecords(r io.Reader, fn func([]models.NetflowRecord
 	return scanner.StreamNetflow(r, fn)
 }
 
+type NetflowScanner struct{}
+
+func (ns *NetflowScanner) StreamRecords(r io.Reader, fn func([]models.NetflowRecord)) error {
+	return netflowscanner.StreamNetflowText(r, fn)
+}
+
 // func (ps *PCAPScanner) StreamRecords(r io.Reader, fn func([]models.NetflowRecord)) error {
 // 	return scanner.StreamPCAP(r, fn)
 // }
@@ -34,7 +41,8 @@ type Ingestor struct {
 func NewIngestor() *Ingestor {
 	return &Ingestor{
 		scanners: map[string]ScannerInterface{
-			".json": &JSONScanner{},
+			".json":    &JSONScanner{},
+			".netflow": &NetflowScanner{},
 			//".pcap": &PCAPScanner{},
 		},
 	}
