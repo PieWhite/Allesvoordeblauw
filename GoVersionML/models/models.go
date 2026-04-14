@@ -1,5 +1,6 @@
 package models
 
+//easyjson:json
 // NetflowRecord represents a single netflow record from JSON data.
 type NetflowRecord struct {
 	Type        string `json:"type"`
