@@ -1,7 +1,5 @@
 package models
 
-// go:generate easyjson -all ndjsonmodel.go
-
 type NDJsonRecord struct {
 	First     string `json:"first"`
 	Last      string `json:"last"`
