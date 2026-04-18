@@ -3,20 +3,30 @@ package scannerv2
 import (
 	"bufio"
 	"io"
+	"sync"
 
 	"goversion/models"
 	"goversion/utils"
-	"sync"
 )
 
 type result struct {
-	records models.NDJsonRecord
+	records *[]models.NDJsonRecord
 	err     error
 }
 
-var pool sync.Pool = sync.Pool{
-	New: func() any {
-		return &models.NDJsonRecord{}
+// Pool for [][]byte to avoid slice allocation every batch
+var batchBytesPool = sync.Pool{
+	New: func() interface{} {
+		b := make([][]byte, 0, 1000)
+		return &b
+	},
+}
+
+// Pool for []models.NDJsonRecord to avoid slice allocation every batch
+var recordsPool = sync.Pool{
+	New: func() interface{} {
+		r := make([]models.NDJsonRecord, 0, 1000)
+		return &r
 	},
 }
 
@@ -24,7 +34,8 @@ func StreamNetflowV2(stream io.Reader, processFn func([]models.NDJsonRecord)) er
 
 	numWorkers := utils.OptimalWorkerCount()
 
-	chunksChan := make(chan []byte, numWorkers*2)
+	// Use pointers to slices for channel communication to avoid copying slice headers
+	chunksChan := make(chan *[][]byte, numWorkers*2)
 	resultsChan := make(chan result, numWorkers*2)
 	errChan := make(chan error, 1)
 
@@ -42,58 +53,105 @@ func StreamNetflowV2(stream io.Reader, processFn func([]models.NDJsonRecord)) er
 	}()
 
 	var firstErr error
-	var wgResults sync.WaitGroup
 
 	for res := range resultsChan {
-
 		if res.err != nil {
 			if firstErr == nil {
 				firstErr = res.err
 			}
 			continue
 		}
-		wgResults.Add(1)
-		go func(records []models.NDJsonRecord) {
-			processFn(records)
-			wgResults.Done()
-		}(res.records)
+
+		// Process synchronously. This caps memory since we only process what has finished parsing.
+		// Dereference the pointer to pass the slice to processFn
+		processFn(*res.records)
+
+		// Return slice to pool to be recycled by workers
+		// IMPORTANT: If processFn spins off a goroutine that keeps res.records,
+		// you cannot pool it here! In that case, processFn must copy it or pool it itself.
+		recordsPtr := res.records
+		*recordsPtr = (*recordsPtr)[:0]
+		recordsPool.Put(recordsPtr)
 	}
 
+	if readerErr := <-errChan; readerErr != nil && firstErr == nil {
+		firstErr = readerErr
+	}
+
+	return firstErr
 }
 
-func Producer(reader io.Reader, chunksChan chan<- []byte, errChan chan<- error) {
+func Producer(reader io.Reader, chunksChan chan<- *[][]byte, errChan chan<- error) {
 	defer close(chunksChan)
 
 	scanner := bufio.NewScanner(reader)
-
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 10*1024*1024)
 
+	const batchSize = 1000
+
+	batchPtr := batchBytesPool.Get().(*[][]byte)
+	batch := *batchPtr
+	batch = batch[:0]
+
 	for scanner.Scan() {
-
 		raw := scanner.Bytes()
-
-		bCopy := make([]byte, len(raw)) // TODO later checken of dit wel nodig is
+		bCopy := make([]byte, len(raw)) // NOTE: This still allocates per line. For zero-allocation, a chunked byte arena is needed.
 		copy(bCopy, raw)
+		batch = append(batch, bCopy)
 
-		chunksChan <- bCopy
+		if len(batch) >= batchSize {
+			*batchPtr = batch
+			chunksChan <- batchPtr
+
+			batchPtr = batchBytesPool.Get().(*[][]byte)
+			batch = *batchPtr
+			batch = batch[:0]
+		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		errChan <- err
+	if len(batch) > 0 {
+		*batchPtr = batch
+		chunksChan <- batchPtr
 	}
+
+	// Always send to errChan to prevent deadlocks!
+	errChan <- scanner.Err()
 }
 
-func Worker(chunksChan <-chan []byte, resultsChan chan<- result, wg *sync.WaitGroup) {
-
+func Worker(chunksChan <-chan *[][]byte, resultsChan chan<- result, wg *sync.WaitGroup) {
 	defer wg.Done()
-	for rawBytes := range chunksChan {
 
-		var record models.NDJsonRecord
+	for batchPtr := range chunksChan {
+		batch := *batchPtr
 
-		err := record.UnmarshalJSON(rawBytes)
+		recordsPtr := recordsPool.Get().(*[]models.NDJsonRecord)
+		records := *recordsPtr
+		records = records[:0]
 
-		resultsChan <- result{records: record, err: err}
+		var firstErr error
+
+		for _, rawBytes := range batch {
+			var record models.NDJsonRecord
+			if err := record.UnmarshalJSON(rawBytes); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			records = append(records, record)
+		}
+
+		if len(records) > 0 || firstErr != nil {
+			*recordsPtr = records // Update the slice header in the pointer
+			resultsChan <- result{records: recordsPtr, err: firstErr}
+		} else {
+			// If empty and no error, return the pointer to the pool to prevent leaks
+			recordsPool.Put(recordsPtr)
+		}
+
+		// Return batch byte slice to pool
+		*batchPtr = batch[:0]
+		batchBytesPool.Put(batchPtr)
 	}
-
 }

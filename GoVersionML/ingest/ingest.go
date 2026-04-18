@@ -9,18 +9,25 @@ import (
 
 	"goversion/models"
 	"goversion/scanner"
+	"goversion/scannerv2"
 )
 
 type ScannerInterface interface {
-	StreamRecords(r io.Reader, fn func([]models.NetflowRecord)) error
+	StreamRecords(r io.Reader, fn func([]models.NDJsonRecord)) error
 }
 
 type JSONScanner struct{}
 
 // type PCAPScanner struct{}
 
-func (js *JSONScanner) StreamRecords(r io.Reader, fn func([]models.NetflowRecord)) error {
+type NDJsonScanner struct{}
+
+func (js *JSONScanner) StreamRecords(r io.Reader, fn func([]models.NDJsonRecord)) error {
 	return scanner.StreamNetflow(r, fn)
+}
+
+func (nd *NDJsonScanner) StreamRecords(r io.Reader, fn func([]models.NDJsonRecord)) error {
+	return scannerv2.StreamNetflowV2(r, fn)
 }
 
 // func (ps *PCAPScanner) StreamRecords(r io.Reader, fn func([]models.NetflowRecord)) error {
@@ -36,6 +43,7 @@ func NewIngestor() *Ingestor {
 		scanners: map[string]ScannerInterface{
 			".json": &JSONScanner{},
 			//".pcap": &PCAPScanner{},
+			".ndjson": &NDJsonScanner{},
 		},
 	}
 }

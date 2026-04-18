@@ -106,7 +106,7 @@ func getWindowKey(ip string, t time.Time) WindowKey {
 	}
 }
 
-func (a *Aggregator) Update(record models.NetflowRecord) {
+func (a *Aggregator) Update(record models.NDJsonRecord) {
 	first, ok := a.parseTimestamp(record.First)
 	if !ok {
 		return

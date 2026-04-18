@@ -18,11 +18,11 @@ func processJsonArray(chunksChan <-chan []byte, resultsChan chan<- result, wg *s
 		returnChunkToPool(chunk)
 
 		if err != nil && wrappedBuf != nil {
-			validBatch := make([]models.NetflowRecord, 0, 1000)
+			validBatch := make([]models.NDJsonRecord, 0, 1000)
 			fallbackDecoder := json.NewDecoder(bytes.NewReader(wrappedBuf.Bytes()))
 			_, _ = fallbackDecoder.Token()
 			for fallbackDecoder.More() {
-				var rec models.NetflowRecord
+				var rec models.NDJsonRecord
 				if errUnm := fallbackDecoder.Decode(&rec); errUnm != nil {
 					resultsChan <- result{records: validBatch}
 					resultsChan <- result{err: fmt.Errorf("json array corruption: %w", errUnm)}
@@ -49,7 +49,7 @@ func processJsonArray(chunksChan <-chan []byte, resultsChan chan<- result, wg *s
 func processJsonLines(chunksChan <-chan []byte, resultsChan chan<- result, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for chunk := range chunksChan {
-		validBatch := make([]models.NetflowRecord, 0, 1000)
+		validBatch := make([]models.NDJsonRecord, 0, 1000)
 
 		start := 0
 		for start < len(chunk) {
@@ -72,7 +72,7 @@ func processJsonLines(chunksChan <-chan []byte, resultsChan chan<- result, wg *s
 				continue
 			}
 
-			var rec models.NetflowRecord
+			var rec models.NDJsonRecord
 			if errUnm := json.Unmarshal(line, &rec); errUnm != nil {
 				fmt.Printf("Skipping malformed NDJSON line: %v\n", errUnm)
 				continue
