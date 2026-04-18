@@ -30,7 +30,7 @@ func (nd *NDJsonScanner) StreamRecords(r io.Reader, fn func([]models.NDJsonRecor
 	return scannerv2.StreamNetflowV2(r, fn)
 }
 
-// func (ps *PCAPScanner) StreamRecords(r io.Reader, fn func([]models.NetflowRecord)) error {
+// func (ps *PCAPScanner) StreamRecords(r io.Reader, fn func([]models.NDJsonRecord)) error {
 // 	return scanner.StreamPCAP(r, fn)
 // }
 
@@ -48,7 +48,7 @@ func NewIngestor() *Ingestor {
 	}
 }
 
-func (i *Ingestor) ProcessInput(path string, processFn func([]models.NetflowRecord)) error {
+func (i *Ingestor) ProcessInput(path string, processFn func([]models.NDJsonRecord)) error {
 	extension := strings.ToLower(filepath.Ext(path))
 
 	scanner, exists := i.scanners[extension]

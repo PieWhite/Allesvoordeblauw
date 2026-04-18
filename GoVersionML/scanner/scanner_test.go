@@ -85,7 +85,7 @@ func TestStreamNetflow(t *testing.T) {
 		r := strings.NewReader(input)
 
 		var count int
-		err := StreamNetflow(r, func(records []models.NetflowRecord) {
+		err := StreamNetflow(r, func(records []models.NDJsonRecord) {
 			count += len(records)
 		})
 
@@ -103,7 +103,7 @@ func TestStreamNetflow(t *testing.T) {
 		r := strings.NewReader(input)
 
 		var count int
-		err := StreamNetflow(r, func(records []models.NetflowRecord) {
+		err := StreamNetflow(r, func(records []models.NDJsonRecord) {
 			count += len(records)
 		})
 
@@ -123,7 +123,7 @@ func TestStreamNetflow(t *testing.T) {
 
 		r := strings.NewReader(input)
 		var count int
-		err := StreamNetflow(r, func(records []models.NetflowRecord) {
+		err := StreamNetflow(r, func(records []models.NDJsonRecord) {
 			count += len(records)
 		})
 
@@ -137,7 +137,7 @@ func TestStreamNetflow(t *testing.T) {
 
 	t.Run("Empty Input", func(t *testing.T) {
 		r := strings.NewReader("")
-		err := StreamNetflow(r, func(records []models.NetflowRecord) {})
+		err := StreamNetflow(r, func(records []models.NDJsonRecord) {})
 		if err == nil || err.Error() != "input stream is empty" {
 			t.Errorf("Empty input should return stream empty error, got %v", err)
 		}
@@ -147,7 +147,7 @@ func TestStreamNetflow(t *testing.T) {
 		expectedErr := errors.New("mock read error initial")
 		r := &errReader{err: expectedErr}
 
-		err := StreamNetflow(r, func(records []models.NetflowRecord) {})
+		err := StreamNetflow(r, func(records []models.NDJsonRecord) {})
 		if err == nil || !strings.Contains(err.Error(), expectedErr.Error()) {
 			t.Errorf("expected wrapped %v, got %v", expectedErr, err)
 		}
@@ -159,7 +159,7 @@ func TestStreamNetflow(t *testing.T) {
 		mockErr := errors.New("mid-stream failure")
 		r := io.MultiReader(strings.NewReader("["), &errReader{err: mockErr})
 
-		err := StreamNetflow(r, func(records []models.NetflowRecord) {})
+		err := StreamNetflow(r, func(records []models.NDJsonRecord) {})
 		// The error from the reader is captured in errChan, returning mockErr wrapped
 		if err == nil || !bytes.Contains([]byte(err.Error()), []byte("mid-stream failure")) {
 			t.Errorf("expected mid-stream error, got %v", err)
@@ -170,7 +170,7 @@ func TestStreamNetflow(t *testing.T) {
 		mockErr := errors.New("mid-stream failure")
 		r := io.MultiReader(strings.NewReader("{"), &errReader{err: mockErr})
 
-		err := StreamNetflow(r, func(records []models.NetflowRecord) {})
+		err := StreamNetflow(r, func(records []models.NDJsonRecord) {})
 		if err == nil || !bytes.Contains([]byte(err.Error()), []byte("mid-stream failure")) {
 			t.Errorf("expected mid-stream error, got %v", err)
 		}

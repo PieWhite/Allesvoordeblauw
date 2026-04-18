@@ -15,7 +15,7 @@ func FuzzAggregator(f *testing.F) {
 	f.Fuzz(func(t *testing.T, src, dst, first, last, flags string, port int, bytes, packets int64) {
 		a := NewAggregator()
 
-		record := models.NetflowRecord{
+		record := models.NDJsonRecord{
 			Src4Addr:  src,
 			Dst4Addr:  dst,
 			First:     first,

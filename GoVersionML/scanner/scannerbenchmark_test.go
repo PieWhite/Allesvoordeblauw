@@ -13,7 +13,7 @@ func generateMockJSON(numRecords int) []byte {
 	var sb strings.Builder
 	sb.WriteString("[")
 	for i := 0; i < numRecords; i++ {
-		// Replace this with fields that actually match your models.NetflowRecord
+		// Replace this with fields that actually match your models.NDJsonRecord
 		sb.WriteString(`{"src_ip": "192.168.1.1", "dst_ip": "10.0.0.1", "bytes": 512}`)
 		if i < numRecords-1 {
 			sb.WriteString(",\n")
@@ -39,7 +39,7 @@ func BenchmarkStreamNetflow(b *testing.B) {
 		reader := bytes.NewReader(mockData)
 
 		// Run the function
-		err := StreamNetflow(reader, func(records []models.NetflowRecord) {
+		err := StreamNetflow(reader, func(records []models.NDJsonRecord) {
 			// Blackhole the result (do nothing). We just want to measure the parsing overhead.
 		})
 

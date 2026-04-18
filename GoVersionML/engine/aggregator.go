@@ -159,7 +159,7 @@ func (a *Aggregator) AllIPStats() []*IPStats {
 	return all
 }
 
-func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time) {
+func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NDJsonRecord, first time.Time) {
 	stats.FlowCount++
 	stats.UniqueDstIPs[record.Dst4Addr] = struct{}{}
 	stats.UniqueDstPorts[record.DstPort] = struct{}{}
@@ -190,11 +190,11 @@ func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRe
 	a.updateTimingMetrics(stats, record, first)
 }
 
-func updateInboundStats(stats *IPStats, record models.NetflowRecord) {
+func updateInboundStats(stats *IPStats, record models.NDJsonRecord) {
 	stats.InboundDstPorts[record.DstPort] = struct{}{}
 }
 
-func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord, first time.Time) {
+func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NDJsonRecord, first time.Time) {
 	tKey := TargetKey{IP: record.Dst4Addr, Port: record.DstPort}
 	s.TargetStartTimes[tKey] = append(s.TargetStartTimes[tKey], float64(first.UnixNano())/1e9)
 
