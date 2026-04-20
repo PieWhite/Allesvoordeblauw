@@ -2,13 +2,12 @@ package ingest
 
 import (
 	"fmt"
+	"goversion/models"
+	"goversion/scannerv2"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"goversion/models"
-	"goversion/scanner"
 )
 
 type ScannerInterface interface {
@@ -17,15 +16,9 @@ type ScannerInterface interface {
 
 type JSONScanner struct{}
 
-// type PCAPScanner struct{}
-
 func (js *JSONScanner) StreamRecords(r io.Reader, fn func([]models.NetflowRecord)) error {
-	return scanner.StreamNetflow(r, fn)
+	return scannerv2.StreamNetflowV2(r, fn)
 }
-
-// func (ps *PCAPScanner) StreamRecords(r io.Reader, fn func([]models.NetflowRecord)) error {
-// 	return scanner.StreamPCAP(r, fn)
-// }
 
 type Ingestor struct {
 	scanners map[string]ScannerInterface
@@ -34,8 +27,8 @@ type Ingestor struct {
 func NewIngestor() *Ingestor {
 	return &Ingestor{
 		scanners: map[string]ScannerInterface{
-			".json": &JSONScanner{},
-			//".pcap": &PCAPScanner{},
+			".json":   &JSONScanner{},
+			".ndjson": &JSONScanner{},
 		},
 	}
 }
