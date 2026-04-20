@@ -17,7 +17,7 @@ var (
 	_ easyjson.Marshaler
 )
 
-func easyjsonF5eef181DecodeGoversionModels(in *jlexer.Lexer, out *NDJsonRecord) {
+func easyjsonD2b7633eDecodeGoversionModels(in *jlexer.Lexer, out *NetflowRecord) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -101,7 +101,7 @@ func easyjsonF5eef181DecodeGoversionModels(in *jlexer.Lexer, out *NDJsonRecord) 
 		in.Consumed()
 	}
 }
-func easyjsonF5eef181EncodeGoversionModels(out *jwriter.Writer, in NDJsonRecord) {
+func easyjsonD2b7633eEncodeGoversionModels(out *jwriter.Writer, in NetflowRecord) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -159,25 +159,112 @@ func easyjsonF5eef181EncodeGoversionModels(out *jwriter.Writer, in NDJsonRecord)
 }
 
 // MarshalJSON supports json.Marshaler interface
-func (v NDJsonRecord) MarshalJSON() ([]byte, error) {
+func (v NetflowRecord) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonF5eef181EncodeGoversionModels(&w, v)
+	easyjsonD2b7633eEncodeGoversionModels(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
-func (v NDJsonRecord) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonF5eef181EncodeGoversionModels(w, v)
+func (v NetflowRecord) MarshalEasyJSON(w *jwriter.Writer) {
+	easyjsonD2b7633eEncodeGoversionModels(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
-func (v *NDJsonRecord) UnmarshalJSON(data []byte) error {
+func (v *NetflowRecord) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonF5eef181DecodeGoversionModels(&r, v)
+	easyjsonD2b7633eDecodeGoversionModels(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
-func (v *NDJsonRecord) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonF5eef181DecodeGoversionModels(l, v)
+func (v *NetflowRecord) UnmarshalEasyJSON(l *jlexer.Lexer) {
+	easyjsonD2b7633eDecodeGoversionModels(l, v)
+}
+func easyjsonD2b7633eDecodeGoversionModels1(in *jlexer.Lexer, out *MLResult) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		switch key {
+		case "IP":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.IP = string(in.String())
+			}
+		case "Probability":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Probability = float64(in.Float64())
+			}
+		case "IsBotnet":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.IsBotnet = bool(in.Bool())
+			}
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjsonD2b7633eEncodeGoversionModels1(out *jwriter.Writer, in MLResult) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	{
+		const prefix string = ",\"IP\":"
+		out.RawString(prefix[1:])
+		out.String(string(in.IP))
+	}
+	{
+		const prefix string = ",\"Probability\":"
+		out.RawString(prefix)
+		out.Float64(float64(in.Probability))
+	}
+	{
+		const prefix string = ",\"IsBotnet\":"
+		out.RawString(prefix)
+		out.Bool(bool(in.IsBotnet))
+	}
+	out.RawByte('}')
+}
+
+// MarshalJSON supports json.Marshaler interface
+func (v MLResult) MarshalJSON() ([]byte, error) {
+	w := jwriter.Writer{}
+	easyjsonD2b7633eEncodeGoversionModels1(&w, v)
+	return w.Buffer.BuildBytes(), w.Error
+}
+
+// MarshalEasyJSON supports easyjson.Marshaler interface
+func (v MLResult) MarshalEasyJSON(w *jwriter.Writer) {
+	easyjsonD2b7633eEncodeGoversionModels1(w, v)
+}
+
+// UnmarshalJSON supports json.Unmarshaler interface
+func (v *MLResult) UnmarshalJSON(data []byte) error {
+	r := jlexer.Lexer{Data: data}
+	easyjsonD2b7633eDecodeGoversionModels1(&r, v)
+	return r.Error()
+}
+
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
+func (v *MLResult) UnmarshalEasyJSON(l *jlexer.Lexer) {
+	easyjsonD2b7633eDecodeGoversionModels1(l, v)
 }

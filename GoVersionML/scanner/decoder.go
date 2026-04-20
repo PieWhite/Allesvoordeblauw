@@ -15,7 +15,7 @@ var wrapPool = sync.Pool{
 	},
 }
 
-func decodeChunkArray(chunk []byte) ([]models.NDJsonRecord, *bytes.Buffer, error) {
+func decodeChunkArray(chunk []byte) ([]models.NetflowRecord, *bytes.Buffer, error) {
 	cleanChunk := bytes.Trim(bytes.TrimSpace(chunk), "[], \n\r\t")
 	if len(cleanChunk) == 0 {
 		return nil, nil, nil
@@ -28,7 +28,7 @@ func decodeChunkArray(chunk []byte) ([]models.NDJsonRecord, *bytes.Buffer, error
 	buf.Write(cleanChunk)
 	buf.WriteByte(']')
 
-	var records []models.NDJsonRecord
+	var records []models.NetflowRecord
 
 	if err := json.Unmarshal(buf.Bytes(), &records); err != nil {
 		return nil, buf, err

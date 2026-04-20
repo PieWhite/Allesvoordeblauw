@@ -53,7 +53,7 @@ func TestParseTimestamp_Boundary(t *testing.T) {
 // TestAggregator_Update_DataIntegrity ensures Src and Dst stats are isolated.
 func TestAggregator_Update_DataIntegrity(t *testing.T) {
 	a := NewAggregator()
-	rec := models.NDJsonRecord{
+	rec := models.NetflowRecord{
 		Src4Addr:  "10.0.0.1",
 		Dst4Addr:  "192.168.1.1",
 		DstPort:   443,
@@ -93,7 +93,7 @@ func TestAggregator_Update_DataIntegrity(t *testing.T) {
 func TestUpdate_ProtocolsAndFlags(t *testing.T) {
 	a := NewAggregator()
 
-	records := []models.NDJsonRecord{
+	records := []models.NetflowRecord{
 		{Src4Addr: "1.1.1.1", Proto: 17, First: "2026-03-17T12:00:00.000"},               // UDP
 		{Src4Addr: "1.1.1.1", Proto: 1, First: "2026-03-17T12:00:01.000"},                // ICMP
 		{Src4Addr: "1.1.1.1", Proto: 6, TCPFlags: "R", First: "2026-03-17T12:00:02.000"}, // RST
@@ -119,7 +119,7 @@ func TestUpdate_ProtocolsAndFlags(t *testing.T) {
 // TestUpdate_DurationClamping targets: if duration < 0 { duration = 0 }
 func TestUpdate_DurationClamping(t *testing.T) {
 	a := NewAggregator()
-	rec := models.NDJsonRecord{
+	rec := models.NetflowRecord{
 		Src4Addr: "1.1.1.1",
 		First:    "2026-03-17T12:00:05.000",
 		Last:     "2026-03-17T12:00:00.000", // Negative duration
@@ -139,14 +139,14 @@ func TestPortSymmetry(t *testing.T) {
 	ts := "2026-03-17T12:00:00.000"
 
 	// Outbound from 10.0.0.1 perspective
-	a.Update(models.NDJsonRecord{
+	a.Update(models.NetflowRecord{
 		Src4Addr: "10.0.0.1",
 		Dst4Addr: "8.8.8.8",
 		DstPort:  53,
 		First:    ts,
 	})
 	// Inbound to 10.0.0.1 perspective (it is the Dst4Addr)
-	a.Update(models.NDJsonRecord{
+	a.Update(models.NetflowRecord{
 		Src4Addr: "8.8.8.8",
 		Dst4Addr: "10.0.0.1",
 		DstPort:  53,
@@ -214,13 +214,13 @@ func TestAggregator_Concurrency(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < recordsPerWorker; j++ {
 				// High contention target (all workers write here)
-				a.Update(models.NDJsonRecord{
+				a.Update(models.NetflowRecord{
 					Src4Addr: "10.0.0.1",
 					First:    "2026-03-17T12:00:00.000",
 					InBytes:  10,
 				})
 				// Low contention target (one worker writes here)
-				a.Update(models.NDJsonRecord{
+				a.Update(models.NetflowRecord{
 					Src4Addr: fmt.Sprintf("10.1.0.%d", w),
 					First:    "2026-03-17T12:00:00.000",
 					InBytes:  20,

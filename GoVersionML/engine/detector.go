@@ -41,12 +41,12 @@ func NewDetector(modelPath string) (*Detector, error) {
 	}, nil
 }
 
-func (d *Detector) ProcessRecord(record models.NDJsonRecord) {
+func (d *Detector) ProcessRecord(record models.NetflowRecord) {
 	atomic.AddInt64(&d.TotalRecords, 1)
 	d.aggregator.Update(record)
 }
 
-func (d *Detector) ProcessRecords(records []models.NDJsonRecord) {
+func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
 	atomic.AddInt64(&d.TotalRecords, int64(len(records)))
 
 	var localMaxWindow int64

@@ -10,7 +10,7 @@ import (
 )
 
 type result struct {
-	records *[]models.NDJsonRecord
+	records *[]models.NetflowRecord
 	err     error
 }
 
@@ -22,15 +22,15 @@ var batchBytesPool = sync.Pool{
 	},
 }
 
-// Pool for []models.NDJsonRecord to avoid slice allocation every batch
+// Pool for []models.NetflowRecord to avoid slice allocation every batch
 var recordsPool = sync.Pool{
 	New: func() interface{} {
-		r := make([]models.NDJsonRecord, 0, 1000)
+		r := make([]models.NetflowRecord, 0, 1000)
 		return &r
 	},
 }
 
-func StreamNetflowV2(stream io.Reader, processFn func([]models.NDJsonRecord)) error {
+func StreamNetflowV2(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 
 	numWorkers := utils.OptimalWorkerCount()
 
@@ -125,14 +125,14 @@ func Worker(chunksChan <-chan *[][]byte, resultsChan chan<- result, wg *sync.Wai
 	for batchPtr := range chunksChan {
 		batch := *batchPtr
 
-		recordsPtr := recordsPool.Get().(*[]models.NDJsonRecord)
+		recordsPtr := recordsPool.Get().(*[]models.NetflowRecord)
 		records := *recordsPtr
 		records = records[:0]
 
 		var firstErr error
 
 		for _, rawBytes := range batch {
-			var record models.NDJsonRecord
+			var record models.NetflowRecord
 			if err := record.UnmarshalJSON(rawBytes); err != nil {
 				if firstErr == nil {
 					firstErr = err

@@ -96,8 +96,8 @@ func TestCalculateResults_LoggingAndContinue(t *testing.T) {
 	}
 
 	// Setup two unique IPs in the aggregator via Update
-	d.aggregator.Update(models.NDJsonRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000"})
-	d.aggregator.Update(models.NDJsonRecord{Src4Addr: "2.2.2.2", First: "2026-03-17T12:00:00.000"})
+	d.aggregator.Update(models.NetflowRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000"})
+	d.aggregator.Update(models.NetflowRecord{Src4Addr: "2.2.2.2", First: "2026-03-17T12:00:00.000"})
 
 	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
 		// Return 2 vectors, simulate failure for the first by returning nil
@@ -116,7 +116,7 @@ func TestDetector_ProcessRecord(t *testing.T) {
 	d := &Detector{
 		aggregator: NewAggregator(),
 	}
-	rec := models.NDJsonRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000"}
+	rec := models.NetflowRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000"}
 
 	d.ProcessRecord(rec)
 

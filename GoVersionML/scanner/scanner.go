@@ -11,7 +11,7 @@ import (
 )
 
 type result struct {
-	records []models.NDJsonRecord
+	records []models.NetflowRecord
 	err     error
 }
 
@@ -30,7 +30,7 @@ func isArray(stream io.Reader) (bool, io.Reader, error) {
 	return isArr, io.MultiReader(bytes.NewReader(buf[:n]), stream), nil
 }
 
-func StreamNetflow(stream io.Reader, processFn func([]models.NDJsonRecord)) error {
+func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 	isArr, reader, err := isArray(stream)
 	if err != nil {
 		return err
@@ -74,7 +74,7 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NDJsonRecord)) erro
 			continue
 		}
 		wgResults.Add(1)
-		go func(records []models.NDJsonRecord) {
+		go func(records []models.NetflowRecord) {
 			processFn(records)
 			wgResults.Done()
 		}(res.records)

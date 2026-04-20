@@ -11,12 +11,12 @@ import (
 )
 
 type ScannerInterface interface {
-	StreamRecords(r io.Reader, fn func([]models.NDJsonRecord)) error
+	StreamRecords(r io.Reader, fn func([]models.NetflowRecord)) error
 }
 
 type JSONScanner struct{}
 
-func (js *JSONScanner) StreamRecords(r io.Reader, fn func([]models.NDJsonRecord)) error {
+func (js *JSONScanner) StreamRecords(r io.Reader, fn func([]models.NetflowRecord)) error {
 	return scannerv2.StreamNetflowV2(r, fn)
 }
 
@@ -33,7 +33,7 @@ func NewIngestor() *Ingestor {
 	}
 }
 
-func (i *Ingestor) ProcessInput(path string, processFn func([]models.NDJsonRecord)) error {
+func (i *Ingestor) ProcessInput(path string, processFn func([]models.NetflowRecord)) error {
 	extension := strings.ToLower(filepath.Ext(path))
 
 	scanner, exists := i.scanners[extension]
