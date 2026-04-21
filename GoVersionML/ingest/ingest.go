@@ -2,13 +2,20 @@ package ingest
 
 import (
 	"fmt"
+	"io"
+
 	"goversion/models"
 	"goversion/scannerv2"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+var scannerRegistry = make(map[string]ScannerInterface)
+
+func Register(extension string, scanner ScannerInterface) {
+	scannerRegistry[strings.ToLower(extension)] = scanner
+}
 
 type ScannerInterface interface {
 	StreamRecords(r io.Reader, fn func([]models.NetflowRecord)) error
@@ -26,10 +33,7 @@ type Ingestor struct {
 
 func NewIngestor() *Ingestor {
 	return &Ingestor{
-		scanners: map[string]ScannerInterface{
-			".json":   &JSONScanner{},
-			".ndjson": &JSONScanner{},
-		},
+		scanners: scannerRegistry,
 	}
 }
 

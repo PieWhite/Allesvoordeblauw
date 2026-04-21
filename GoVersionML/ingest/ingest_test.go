@@ -90,7 +90,7 @@ func TestJSONScanner_Bridge(t *testing.T) {
 	s := &JSONScanner{}
 
 	t.Run("Verify Execution Path", func(t *testing.T) {
-		r := strings.NewReader(`[]`)
+		r := strings.NewReader(`{"first":"2024-01-01T00:00:00.000","last":"2024-01-01T00:00:01.000"}` + "\n")
 
 		err := s.StreamRecords(r, func(record []models.NetflowRecord) {
 		})
