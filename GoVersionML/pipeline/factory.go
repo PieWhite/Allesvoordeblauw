@@ -2,21 +2,21 @@ package pipeline
 
 import (
 	"fmt"
+	"goversion/config"
+	"goversion/models"
 	"path/filepath"
 	"strings"
-
-	"goversion/config"
 )
 
-func GetPipelineForInput(cfg *config.AppConfig) (ScannerPipeline, error) {
+func RunPipelineForInput(cfg *config.AppConfig) ([]models.MLResult, int64, error) {
 	ext := strings.ToLower(filepath.Ext(cfg.InputPath))
 
 	if ext == ".pcap" {
-		return nil, fmt.Errorf("pcap pipeline is not yet implemented")
+		return nil, 0, fmt.Errorf("pcap pipeline is not yet implemented")
 	}
 	if ext == ".json" || ext == ".ndjson" {
-		return NewNetflowPipeline(cfg.ModelPath), nil
+		return RunNetflow(cfg.InputPath, cfg.ModelPath)
 	}
 
-	return nil, fmt.Errorf("unsupported file extension: %s", ext)
+	return nil, 0, fmt.Errorf("unsupported file extension: %s", ext)
 }

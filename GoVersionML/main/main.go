@@ -54,14 +54,9 @@ func run(args []string) error {
 
 	fmt.Fprintf(out, "Scanning %s ...\n", appConfig.InputPath)
 
-	scanPipeline, err := pipeline.GetPipelineForInput(appConfig)
+	results, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
 	if err != nil {
 		return fmt.Errorf("could not get pipeline: %w", err)
-	}
-
-	results, totalRecords, err := scanPipeline.Run(appConfig.InputPath)
-	if err != nil {
-		return fmt.Errorf("pipeline execution failed: %w", err)
 	}
 
 	reporter.PrintSummary(out, results, totalRecords, time.Since(start))

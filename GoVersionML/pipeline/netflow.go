@@ -2,40 +2,28 @@ package pipeline
 
 import (
 	"fmt"
-
 	"goversion/engine"
-	"goversion/ingest"
 	"goversion/models"
+	"goversion/scannerv2"
+	"os"
 )
 
-// NetflowPipeline encapsulates the process of reading netflow-like data and passing it to the ML engine.
-type NetflowPipeline struct {
-	modelPath string
-}
+func RunNetflow(inputPath string, modelPath string) ([]models.MLResult, int64, error) {
 
-func NewNetflowPipeline(modelPath string) *NetflowPipeline {
-	return &NetflowPipeline{
-		modelPath: modelPath,
-	}
-}
-
-// Run executes the entire extraction to detection pipeline for netflow files.
-func (p *NetflowPipeline) Run(inputPath string) ([]models.MLResult, int64, error) {
-	// Initialize specific netflow components
-	detector, err := engine.NewDetector(p.modelPath)
+	detector, err := engine.NewDetector(modelPath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed loading xgboost model: %w", err)
 	}
 
-	flowIngestor := ingest.NewIngestor()
-
-	// Execute processing loop
-	err = flowIngestor.ProcessInput(inputPath, detector.ProcessRecords)
+	file, err := os.Open(inputPath)
 	if err != nil {
-		return nil, 0, fmt.Errorf("scanning input file: %w", err)
+		return nil, 0, fmt.Errorf("failed to open input file: %w", err)
 	}
+	defer file.Close()
 
-	// Calculate and return results
+	scannerv2.StreamNetflowV2(file, detector.ProcessRecords)
+	// scanner.StreamNetflow(file, detector.ProcessRecords)
+
 	results := detector.CalculateResults()
 	return results, detector.TotalRecords, nil
 }

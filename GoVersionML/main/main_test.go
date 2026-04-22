@@ -13,7 +13,7 @@ import (
 //	benchstat results.txt
 func BenchmarkEndToEnd(b *testing.B) {
 	// Find the provided test dataset
-	testFile := "../testNDJSON.json"
+	testFile := "../testNDJSON.ndjson"
 	if _, err := os.Stat(testFile); os.IsNotExist(err) {
 		b.Skipf("Test file %s not found in the current directory, skipping benchmark", testFile)
 	}
