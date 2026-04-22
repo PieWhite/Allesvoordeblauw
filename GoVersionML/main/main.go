@@ -9,9 +9,8 @@ import (
 	"time"
 
 	"goversion/config"
-	"goversion/engine"
-	"goversion/ingest"
 	"goversion/output"
+	"goversion/pipeline"
 	"goversion/reporter"
 )
 
@@ -53,21 +52,19 @@ func run(args []string) error {
 	}
 	defer cleanup()
 
-	detector, err := engine.NewDetector(appConfig.ModelPath)
-	if err != nil {
-		return fmt.Errorf("Failed loading xgboost model %w", err)
-	}
-	fmt.Fprintf(out, "Scanning %s with XGBoost...\n", appConfig.NetflowPath)
+	fmt.Fprintf(out, "Scanning %s ...\n", appConfig.InputPath)
 
-	flowIngestor := ingest.NewIngestor()
-
-	err = flowIngestor.ProcessInput(appConfig.NetflowPath, detector.ProcessRecords)
+	scanPipeline, err := pipeline.GetPipelineForInput(appConfig)
 	if err != nil {
-		return fmt.Errorf("scanning input file: %w", err)
+		return fmt.Errorf("could not get pipeline: %w", err)
 	}
 
-	results := detector.CalculateResults()
-	reporter.PrintSummary(out, results, detector.TotalRecords, time.Since(start))
+	results, totalRecords, err := scanPipeline.Run(appConfig.InputPath)
+	if err != nil {
+		return fmt.Errorf("pipeline execution failed: %w", err)
+	}
+
+	reporter.PrintSummary(out, results, totalRecords, time.Since(start))
 
 	if appConfig.OutputFile != "" {
 		fmt.Printf("Results written to: %s\n", appConfig.OutputFile)

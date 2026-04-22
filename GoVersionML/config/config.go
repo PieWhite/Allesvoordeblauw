@@ -8,11 +8,11 @@ import (
 // AppConfig holds the configuration state for the application.
 // This struct encapsulates configuration, replacing the loose global parsing.
 type AppConfig struct {
-	ModelPath   string
-	OutputFile  string
-	NetflowPath string
-	CpuProfile  string
-	MemProfile  string
+	ModelPath  string
+	OutputFile string
+	InputPath  string
+	CpuProfile string
+	MemProfile string
 }
 
 // ParseFlags reads command-line flags and arguments, populating the AppConfig.
@@ -31,8 +31,8 @@ func (c *AppConfig) ParseArgs(args []string) error {
 	}
 
 	if fs.NArg() == 0 {
-		return fmt.Errorf("you need to specify a netflow file")
+		return fmt.Errorf("you need to specify an input file")
 	}
-	c.NetflowPath = fs.Arg(0)
+	c.InputPath = fs.Arg(0)
 	return nil
 }
