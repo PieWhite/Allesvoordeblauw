@@ -21,8 +21,9 @@ func RunNetflow(inputPath string, modelPath string) ([]models.MLResult, int64, e
 	}
 	defer file.Close()
 
-	scannerv2.StreamNetflowV2(file, detector.ProcessRecords)
-	// scanner.StreamNetflow(file, detector.ProcessRecords)
+	if err := scannerv2.StreamNetflowV2(file, detector.ProcessRecords); err != nil {
+		return nil, 0, fmt.Errorf("failed to stream netflow data from %q: %w", inputPath, err)
+	}
 
 	results := detector.CalculateResults()
 	return results, detector.TotalRecords, nil

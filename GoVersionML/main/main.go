@@ -56,7 +56,7 @@ func run(args []string) error {
 
 	results, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
 	if err != nil {
-		return fmt.Errorf("could not get pipeline: %w", err)
+		return fmt.Errorf("failed to process input pipeline for %q: %w", appConfig.InputPath, err)
 	}
 
 	reporter.PrintSummary(out, results, totalRecords, time.Since(start))
