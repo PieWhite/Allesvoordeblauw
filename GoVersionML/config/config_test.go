@@ -34,9 +34,8 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 		},
 		{
 			name:       "Error: missing netflow file",
-			args:       []string{"-m", "model.json"},
-			wantErr:    nil, // err itself isn't nil, but we check wantErrStr
-			wantErrStr: "you need to specify a netflow file",
+			args:       []string{"-m", "mymodel.json"},
+			wantErrStr: "you need to specify an input file",
 		},
 		{
 			name:    "Error: help flag requested",
@@ -46,7 +45,7 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 		{
 			name:       "Error: empty arguments",
 			args:       []string{},
-			wantErrStr: "you need to specify a netflow file",
+			wantErrStr: "you need to specify an input file",
 		},
 		{
 			name:       "Error: invalid flag provided",
@@ -84,8 +83,8 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 				t.Fatalf("Unexpected error: %v", err)
 			}
 
-			if cfg.NetflowPath != tt.wantNetflow {
-				t.Errorf("NetflowPath = %q, want %q", cfg.NetflowPath, tt.wantNetflow)
+			if cfg.InputPath != tt.wantNetflow {
+				t.Errorf("InputPath = %q, want %q", cfg.InputPath, tt.wantNetflow)
 			}
 			if cfg.ModelPath != tt.wantModel {
 				t.Errorf("ModelPath = %q, want %q", cfg.ModelPath, tt.wantModel)
