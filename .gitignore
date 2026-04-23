@@ -46,3 +46,4 @@ test_netflow.netflow
 GoVersionML/baseline.txt
 GoVersionML/current_benchmark.txt
 GoVersionML/Xgboost/xgboostv5_best_final.json
+GoVersionML/test_netflow.ndjson
