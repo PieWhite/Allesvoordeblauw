@@ -64,23 +64,24 @@ func StreamNetflowV2(stream io.Reader, processFn func([]models.NetflowRecord)) e
 	var firstErr error
 
 	for res := range resultsChan {
-		if res.err != nil {
-			if firstErr == nil {
-				firstErr = res.err
-			}
-			continue
+		// 1. Track the first error encountered, but do NOT halt or skip the iteration.
+		if res.err != nil && firstErr == nil {
+			firstErr = res.err
 		}
 
-		// Process synchronously. This caps memory since we only process what has finished parsing.
-		// Dereference the pointer to pass the slice to processFn
-		processFn(*res.records)
+		// 2. If the worker parsed ANY valid records (even if an error also occurred in this batch), process them.
+		if res.records != nil && len(*res.records) > 0 {
+			processFn(*res.records)
+		}
 
-		// Return slice to pool to be recycled by workers
-		// IMPORTANT: If processFn spins off a goroutine that keeps res.records,
-		// you cannot pool it here! In that case, processFn must copy it or pool it itself.
-		recordsPtr := res.records
-		*recordsPtr = (*recordsPtr)[:0]
-		recordsPool.Put(recordsPtr)
+		// 3. Always recycle the slice back into the pool to prevent memory leaks.
+		if res.records != nil {
+			recordsPtr := res.records
+			// IMPORTANT: If processFn spins off a goroutine that keeps res.records,
+			// you cannot pool it here! In that case, processFn must copy it or pool it itself.
+			*recordsPtr = (*recordsPtr)[:0]
+			recordsPool.Put(recordsPtr)
+		}
 	}
 
 	if readerErr := <-errChan; readerErr != nil && firstErr == nil {
@@ -105,7 +106,7 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error) 
 
 	for scanner.Scan() {
 		raw := scanner.Bytes()
-		
+
 		// If the current arena is too small to fit the new line, allocate a new one.
 		if batch.Offset+len(raw) > len(batch.Arena) {
 			newCap := len(batch.Arena) * 2
