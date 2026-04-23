@@ -13,25 +13,27 @@ import (
 func processJsonArray(chunksChan <-chan []byte, resultsChan chan<- result, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for chunk := range chunksChan {
-		records, wrappedBuf, err := decodeChunkArray(chunk)
+		recordsPtr := recordsPool.Get().(*[]models.NetflowRecord)
+		*recordsPtr = (*recordsPtr)[:0]
+
+		wrappedBuf, err := decodeChunkArray(chunk, recordsPtr)
 
 		returnChunkToPool(chunk)
 
 		if err != nil && wrappedBuf != nil {
-			validBatch := make([]models.NetflowRecord, 0, 1000)
 			fallbackDecoder := json.NewDecoder(bytes.NewReader(wrappedBuf.Bytes()))
 			_, _ = fallbackDecoder.Token()
 			for fallbackDecoder.More() {
 				var rec models.NetflowRecord
 				if errUnm := fallbackDecoder.Decode(&rec); errUnm != nil {
-					resultsChan <- result{records: validBatch}
+					resultsChan <- result{records: recordsPtr}
 					resultsChan <- result{err: fmt.Errorf("json array corruption: %w", errUnm)}
 					wrapPool.Put(wrappedBuf)
 					return
 				}
-				validBatch = append(validBatch, rec)
+				*recordsPtr = append(*recordsPtr, rec)
 			}
-			resultsChan <- result{records: validBatch}
+			resultsChan <- result{records: recordsPtr}
 			wrapPool.Put(wrappedBuf)
 			continue
 		}
@@ -40,8 +42,10 @@ func processJsonArray(chunksChan <-chan []byte, resultsChan chan<- result, wg *s
 			wrapPool.Put(wrappedBuf)
 		}
 
-		if records != nil {
-			resultsChan <- result{records: records}
+		if len(*recordsPtr) > 0 {
+			resultsChan <- result{records: recordsPtr}
+		} else {
+			recordsPool.Put(recordsPtr)
 		}
 	}
 }
@@ -49,7 +53,9 @@ func processJsonArray(chunksChan <-chan []byte, resultsChan chan<- result, wg *s
 func processJsonLines(chunksChan <-chan []byte, resultsChan chan<- result, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for chunk := range chunksChan {
-		validBatch := make([]models.NetflowRecord, 0, 1000)
+		recordsPtr := recordsPool.Get().(*[]models.NetflowRecord)
+		records := *recordsPtr
+		records = records[:0]
 
 		start := 0
 		for start < len(chunk) {
@@ -77,10 +83,16 @@ func processJsonLines(chunksChan <-chan []byte, resultsChan chan<- result, wg *s
 				fmt.Printf("Skipping malformed NDJSON line: %v\n", errUnm)
 				continue
 			}
-			validBatch = append(validBatch, rec)
+			records = append(records, rec)
 		}
 
-		resultsChan <- result{records: validBatch}
+		if len(records) > 0 {
+			*recordsPtr = records
+			resultsChan <- result{records: recordsPtr}
+		} else {
+			recordsPool.Put(recordsPtr)
+		}
+		
 		returnChunkToPool(chunk)
 	}
 }

@@ -28,8 +28,8 @@ func TestProcessJsonArray(t *testing.T) {
 		if res.err != nil {
 			t.Fatalf("unexpected err: %v", res.err)
 		}
-		if len(res.records) != 2 {
-			t.Fatalf("expected 2 records, got %v", len(res.records))
+		if len(*res.records) != 2 {
+			t.Fatalf("expected 2 records, got %v", len(*res.records))
 		}
 	})
 
@@ -58,7 +58,7 @@ func TestProcessJsonArray(t *testing.T) {
 			if r.err != nil {
 				finalErr = r.err
 			} else {
-				successRecords += len(r.records)
+				successRecords += len(*r.records)
 			}
 		}
 
@@ -93,8 +93,8 @@ func TestProcessJsonLines(t *testing.T) {
 		if res.err != nil {
 			t.Fatalf("unexpected err: %v", res.err)
 		}
-		if len(res.records) != 2 {
-			t.Fatalf("expected 2 records, got %v", len(res.records))
+		if len(*res.records) != 2 {
+			t.Fatalf("expected 2 records, got %v", len(*res.records))
 		}
 	})
 
@@ -123,8 +123,8 @@ func TestProcessJsonLines(t *testing.T) {
 			t.Fatalf("unexpected err: %v", res.err)
 		}
 		// Expect exactly 2 records. The broken line should be detected and skipped without failure.
-		if len(res.records) != 2 {
-			t.Fatalf("expected 2 successful records, got %d", len(res.records))
+		if len(*res.records) != 2 {
+			t.Fatalf("expected 2 successful records, got %d", len(*res.records))
 		}
 	})
 }

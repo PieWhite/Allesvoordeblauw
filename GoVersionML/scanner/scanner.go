@@ -11,8 +11,15 @@ import (
 )
 
 type result struct {
-	records []models.NetflowRecord
+	records *[]models.NetflowRecord
 	err     error
+}
+
+var recordsPool = sync.Pool{
+	New: func() interface{} {
+		r := make([]models.NetflowRecord, 0, 1000)
+		return &r
+	},
 }
 
 func isArray(stream io.Reader) (bool, io.Reader, error) {
@@ -74,8 +81,12 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) err
 			continue
 		}
 		wgResults.Add(1)
-		go func(records []models.NetflowRecord) {
-			processFn(records)
+		go func(recordsPtr *[]models.NetflowRecord) {
+			processFn(*recordsPtr)
+			
+			*recordsPtr = (*recordsPtr)[:0]
+			recordsPool.Put(recordsPtr)
+			
 			wgResults.Done()
 		}(res.records)
 	}
