@@ -34,7 +34,7 @@ func FuzzAggregator(f *testing.F) {
 		for _, stats := range a.AllIPStats() {
 			vec := stats.ToMLVector()
 
-			if len(vec) != 21 {
+			if len(vec) != 36 {
 				t.Errorf("Vector size mismatch: %d", len(vec))
 			}
 

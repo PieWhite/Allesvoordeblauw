@@ -21,7 +21,7 @@ type AppConfig struct {
 func (c *AppConfig) ParseArgs(args []string) error {
 	fs := flag.NewFlagSet("config", flag.ContinueOnError)
 
-	fs.StringVar(&c.ModelPath, "m", "../Xgboost/botnet_xgboost.json", "Path to XGBoost JSON: -m ./Xgboost/your-xgboost-name.json")
+	fs.StringVar(&c.ModelPath, "m", "../Xgboost/xgboostv5_best_final.json", "Path to XGBoost JSON: -m ./Xgboost/your-xgboost-name.json")
 	fs.StringVar(&c.OutputFile, "o", "", "Write results to a text file: -o yourresults.txt")
 	fs.StringVar(&c.CpuProfile, "cpuprofile", "", "Write CPU profile to file")
 	fs.StringVar(&c.MemProfile, "memprofile", "", "Write memory profile to file")

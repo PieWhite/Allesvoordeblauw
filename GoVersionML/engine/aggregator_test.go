@@ -196,8 +196,8 @@ func TestToMLVector_Sanitization(t *testing.T) {
 		}
 	}
 
-	if vec[16] != 0 {
-		t.Errorf("Feature 16 (ip_port_ratio) expected 0, got %v", vec[16])
+	if vec[31] != 0 {
+		t.Errorf("Feature 31 (ip_port_ratio) expected 0, got %v", vec[31])
 	}
 }
 
