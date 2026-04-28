@@ -33,19 +33,19 @@ type IPStats struct {
 	TargetStartTimes   map[TargetKey][]float64
 
 	// V5 New metrics
-	DstIPFreq            map[string]int
-	SrcPortFreq          map[int]int
-	DstPortFreq          map[int]int
-	BppRatios            []float32
-	BppRoundedFreq       map[float64]int
-	MinuteBuckets        map[int64]int
+	DstIPFreq      map[string]int
+	SrcPortFreq    map[int]int
+	DstPortFreq    map[int]int
+	BppRatios      []float32
+	BppRoundedFreq map[float64]int
+	MinuteBuckets  map[int64]int
 
-	MeanBytes            float64
-	M2Bytes              float64
-	MeanPackets          float64
-	M2Packets            float64
-	MeanBpp              float64
-	M2Bpp                float64
+	MeanBytes   float64
+	M2Bytes     float64
+	MeanPackets float64
+	M2Packets   float64
+	MeanBpp     float64
+	M2Bpp       float64
 
 	SrcEphemeralCount    float64
 	SrcWellKnownCount    float64
@@ -289,11 +289,12 @@ func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord
 	}
 }
 
-// ToMLVector computes the final 36 float64 features expected by XGBoost V5.
+// ToMLVector computes the final 47 float64 features expected by XGBoost V5 Extreme.
 func (s *IPStats) ToMLVector() []float64 {
 	fc := float64(s.FlowCount)
 	if fc == 0 {
-		return make([]float64, 36)
+		// [FIX 1] Must return 47 features to prevent runtime panics on empty windows
+		return make([]float64, 47)
 	}
 
 	portSymmetry := s.calculatePortSymmetry()
@@ -344,44 +345,70 @@ func (s *IPStats) ToMLVector() []float64 {
 		bppStd = math.Sqrt(s.M2Bpp / (fc - 1))
 	}
 
-	//Pack and return the array — order matches extract_features_v5.py
+	flowsPerSec := fc / 300.0
+	bytesPerSec := s.TotalBytes / 300.0
+	packetsPerSec := s.TotalPackets / 300.0
+	pctTcp := (s.TCPCount / fc) * 100.0
+	pctUdp := (s.UDPCount / fc) * 100.0
+	pctSyn := (s.SynOnlyCount / fc) * 100.0
+	pctRst := (s.RstCount / fc) * 100.0
+	pctEphemeralSrc := (s.SrcEphemeralCount / fc) * 100.0
+	pctWellKnownSrc := (s.SrcWellKnownCount / fc) * 100.0
+	avgDuration := s.SumDurationSec / fc
+
+	// Return array of exactly 47 features matching extreme_tune_v5.py augment_features()
 	return []float64{
-		fc / 300.0,                                     // 0: flows_per_second
-		s.TotalBytes / 300.0,                           // 1: bytes_per_second
-		s.TotalPackets / 300.0,                         // 2: packets_per_second
-		float64(len(s.UniqueDstIPs)),                   // 3: unique_dst_ips
-		float64(len(s.UniqueDstPorts)),                 // 4: unique_dst_ports
-		float64(len(s.UniqueSrcPorts)),                 // 5: unique_src_ports
-		s.TotalBytes / fc,                              // 6: avg_bytes_per_flow
-		s.TotalPackets / fc,                            // 7: avg_packets_per_flow
-		bytesStd,                                       // 8: bytes_std
-		packetsStd,                                     // 9: packets_std
-		bppStd,                                         // 10: bpp_std
-		bppIqr,                                         // 11: bpp_iqr
-		dstIPEntropy,                                   // 12: dst_ip_entropy
-		srcPortEntropy,                                 // 13: src_port_entropy
-		topDstPortSharePct,                             // 14: top_dst_port_share_pct
-		float64(domP75),                                // 15: dominant_bpp_count_p75
-		float64(domP90),                                // 16: dominant_bpp_count_p90
-		(s.TCPCount / fc) * 100.0,                      // 17: pct_tcp
-		(s.UDPCount / fc) * 100.0,                      // 18: pct_udp
-		(s.ICMPCount / fc) * 100.0,                     // 19: pct_icmp
-		(s.WellKnownPortCount / fc) * 100.0,            // 20: pct_well_known_ports
-		100.0 - ((s.WellKnownPortCount / fc) * 100.0),  // 21: pct_high_ports
-		(s.SrcEphemeralCount / fc) * 100.0,             // 22: pct_ephemeral_src_ports
-		(s.SrcWellKnownCount / fc) * 100.0,             // 23: pct_well_known_src_ports
-		(s.ClientInitiatedCount / fc) * 100.0,          // 24: pct_client_initiated
-		(s.ServerInitiatedCount / fc) * 100.0,          // 25: pct_server_initiated
-		s.SumDurationSec / fc,                          // 26: avg_duration
-		iatMean,                                        // 27: iat_mean
-		iatVar,                                         // 28: iat_variance
-		iatCV,                                          // 29: iat_cv
-		portSymmetry,                                   // 30: port_symmetry
-		float64(len(s.UniqueDstIPs)) / uniquePorts,     // 31: ip_port_ratio
-		s.TotalBytes / totalPackets,                    // 32: avg_payload_per_packet
-		(s.SynOnlyCount / fc) * 100.0,                  // 33: pct_syn_only
-		(s.RstCount / fc) * 100.0,                      // 34: pct_rst
-		burstMax,                                       // 35: burst_max_flows_per_min
+		// --- 36 BASE FEATURES ---
+		flowsPerSec,                         // 0
+		bytesPerSec,                         // 1
+		packetsPerSec,                       // 2
+		float64(len(s.UniqueDstIPs)),        // 3
+		float64(len(s.UniqueDstPorts)),      // 4
+		float64(len(s.UniqueSrcPorts)),      // 5
+		s.TotalBytes / fc,                   // 6
+		s.TotalPackets / fc,                 // 7
+		bytesStd,                            // 8
+		packetsStd,                          // 9
+		bppStd,                              // 10
+		bppIqr,                              // 11
+		dstIPEntropy,                        // 12
+		srcPortEntropy,                      // 13
+		topDstPortSharePct,                  // 14
+		float64(domP75),                     // 15
+		float64(domP90),                     // 16
+		pctTcp,                              // 17
+		pctUdp,                              // 18
+		(s.ICMPCount / fc) * 100.0,          // 19
+		(s.WellKnownPortCount / fc) * 100.0, // 20
+		100.0 - ((s.WellKnownPortCount / fc) * 100.0), // 21
+		pctEphemeralSrc,                       // 22
+		pctWellKnownSrc,                       // 23
+		(s.ClientInitiatedCount / fc) * 100.0, // 24
+		(s.ServerInitiatedCount / fc) * 100.0, // 25
+		avgDuration,                           // 26
+		iatMean,                               // 27
+		iatVar,                                // 28
+		iatCV,                                 // 29
+		portSymmetry,                          // 30
+		float64(len(s.UniqueDstIPs)) / uniquePorts, // 31
+		s.TotalBytes / totalPackets,                // 32
+		pctSyn,                                     // 33
+		pctRst,                                     // 34
+		burstMax,                                   // 35
+
+		// --- 11 AUGMENTED FEATURES (From extreme_tune_v5.py) ---
+		// [FIX 2] Using 0.0 instead of 0 to satisfy strict type checking
+		math.Log1p(math.Max(0.0, flowsPerSec)),                // 36: log_flows_per_second
+		math.Log1p(math.Max(0.0, bytesPerSec)),                // 37: log_bytes_per_second
+		math.Log1p(math.Max(0.0, packetsPerSec)),              // 38: log_packets_per_second
+		pctTcp - pctUdp,                                       // 39: tcp_udp_gap
+		pctSyn - pctRst,                                       // 40: syn_rst_gap
+		math.Sqrt(math.Max(0.0, iatVar)),                      // 41: iat_std
+		avgDuration * flowsPerSec,                             // 42: duration_flow_interaction
+		dstIPEntropy * math.Log1p(math.Max(0.0, uniquePorts)), // 43: entropy_port_interaction
+		float64(domP90) - float64(domP75),                     // 44: dominance_gap
+		pctEphemeralSrc - pctWellKnownSrc,                     // 45: src_role_gap
+		burstMax * math.Log1p(math.Max(0.0, dstIPEntropy)),    // 46: burst_entropy_interaction
 	}
 }
 
@@ -416,7 +443,7 @@ func calculateIntEntropy(freqs map[int]int, total float64) float64 {
 
 // calculateBPPIQR calculates the IQR (P75 - P25) of BppRatios.
 // TODO: For future memory safety during extremely large volumetric attacks, replace
-// the raw []float32 array with an approximate quantile sketch like T-Digest or 
+// the raw []float32 array with an approximate quantile sketch like T-Digest or
 // use a fixed-width histogram to compute IQRs without capping array lengths.
 func calculateBPPIQR(bppRatios *[]float32) float64 {
 	n := len(*bppRatios)
@@ -426,10 +453,10 @@ func calculateBPPIQR(bppRatios *[]float32) float64 {
 	sort.Slice(*bppRatios, func(i, j int) bool {
 		return (*bppRatios)[i] < (*bppRatios)[j]
 	})
-	
+
 	q25Idx := int(float64(n-1) * 0.25)
 	q75Idx := int(float64(n-1) * 0.75)
-	
+
 	return float64((*bppRatios)[q75Idx] - (*bppRatios)[q25Idx])
 }
 
@@ -438,17 +465,17 @@ func dominantBPPCount(bppFreq map[float64]int, totalFlows int, coverage float64)
 	if len(bppFreq) == 0 || totalFlows == 0 {
 		return 0
 	}
-	
+
 	counts := make([]int, 0, len(bppFreq))
 	for _, count := range bppFreq {
 		counts = append(counts, count)
 	}
-	
+
 	sort.Sort(sort.Reverse(sort.IntSlice(counts)))
-	
+
 	cumulative := 0
 	target := int(float64(totalFlows) * coverage)
-	
+
 	for i, count := range counts {
 		cumulative += count
 		if cumulative >= target {
