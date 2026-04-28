@@ -2,12 +2,14 @@ package scanner
 
 import (
 	"testing"
+	"goversion/models"
 )
 
 func TestDecodeChunkArray(t *testing.T) {
 	t.Run("Valid JSON", func(t *testing.T) {
 		input := []byte(`{"src4_addr": "1.1.1.1"}, {"src4_addr": "2.2.2.2"}`)
-		records, wrapped, err := decodeChunkArray(input)
+		var records []models.NetflowRecord
+		wrapped, err := decodeChunkArray(input, &records)
 
 		if err != nil {
 			t.Fatalf("unexpected err: %v", err)
@@ -27,13 +29,14 @@ func TestDecodeChunkArray(t *testing.T) {
 
 	t.Run("Invalid JSON", func(t *testing.T) {
 		input := []byte(`{"src4_addr": "1.1.1.1" --- }`)
-		records, wrapped, err := decodeChunkArray(input)
+		var records []models.NetflowRecord
+		wrapped, err := decodeChunkArray(input, &records)
 
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		if records != nil {
-			t.Errorf("expected records to be nil")
+		if len(records) > 0 {
+			t.Errorf("expected records to be empty")
 		}
 		if string(wrapped.Bytes()) != `[{"src4_addr": "1.1.1.1" --- }]` {
 			t.Errorf("wrapped string unexpectedly modified: %s", string(wrapped.Bytes()))
@@ -43,12 +46,13 @@ func TestDecodeChunkArray(t *testing.T) {
 
 	t.Run("Empty Input", func(t *testing.T) {
 		input := []byte(" \n\r ")
-		records, wrapped, err := decodeChunkArray(input)
+		var records []models.NetflowRecord
+		wrapped, err := decodeChunkArray(input, &records)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if records != nil || wrapped != nil {
+		if len(records) > 0 || wrapped != nil {
 			t.Errorf("expected nil for records and wrapped on empty input")
 		}
 	})

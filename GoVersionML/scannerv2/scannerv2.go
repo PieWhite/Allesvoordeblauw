@@ -14,11 +14,20 @@ type result struct {
 	err     error
 }
 
-// Pool for [][]byte to avoid slice allocation every batch
-var batchBytesPool = sync.Pool{
+type Batch struct {
+	Lines  [][]byte
+	Arena  []byte
+	Offset int
+}
+
+// Pool for Batches to avoid allocation every batch
+var batchPool = sync.Pool{
 	New: func() interface{} {
-		b := make([][]byte, 0, 1000)
-		return &b
+		return &Batch{
+			Lines:  make([][]byte, 0, 1000),
+			Arena:  make([]byte, 2*1024*1024), // 2MB initial arena
+			Offset: 0,
+		}
 	},
 }
 
@@ -34,8 +43,8 @@ func StreamNetflowV2(stream io.Reader, processFn func([]models.NetflowRecord)) e
 
 	numWorkers := utils.OptimalWorkerCount()
 
-	// Use pointers to slices for channel communication to avoid copying slice headers
-	chunksChan := make(chan *[][]byte, numWorkers*2)
+	// Use pointers for channel communication to avoid copying
+	chunksChan := make(chan *Batch, numWorkers*2)
 	resultsChan := make(chan result, numWorkers*2)
 	errChan := make(chan error, 1)
 
@@ -55,23 +64,24 @@ func StreamNetflowV2(stream io.Reader, processFn func([]models.NetflowRecord)) e
 	var firstErr error
 
 	for res := range resultsChan {
-		if res.err != nil {
-			if firstErr == nil {
-				firstErr = res.err
-			}
-			continue
+		// 1. Track the first error encountered, but do NOT halt or skip the iteration.
+		if res.err != nil && firstErr == nil {
+			firstErr = res.err
 		}
 
-		// Process synchronously. This caps memory since we only process what has finished parsing.
-		// Dereference the pointer to pass the slice to processFn
-		processFn(*res.records)
+		// 2. If the worker parsed ANY valid records (even if an error also occurred in this batch), process them.
+		if res.records != nil && len(*res.records) > 0 {
+			processFn(*res.records)
+		}
 
-		// Return slice to pool to be recycled by workers
-		// IMPORTANT: If processFn spins off a goroutine that keeps res.records,
-		// you cannot pool it here! In that case, processFn must copy it or pool it itself.
-		recordsPtr := res.records
-		*recordsPtr = (*recordsPtr)[:0]
-		recordsPool.Put(recordsPtr)
+		// 3. Always recycle the slice back into the pool to prevent memory leaks.
+		if res.records != nil {
+			recordsPtr := res.records
+			// IMPORTANT: If processFn spins off a goroutine that keeps res.records,
+			// you cannot pool it here! In that case, processFn must copy it or pool it itself.
+			*recordsPtr = (*recordsPtr)[:0]
+			recordsPool.Put(recordsPtr)
+		}
 	}
 
 	if readerErr := <-errChan; readerErr != nil && firstErr == nil {
@@ -81,7 +91,7 @@ func StreamNetflowV2(stream io.Reader, processFn func([]models.NetflowRecord)) e
 	return firstErr
 }
 
-func Producer(reader io.Reader, chunksChan chan<- *[][]byte, errChan chan<- error) {
+func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error) {
 	defer close(chunksChan)
 
 	scanner := bufio.NewScanner(reader)
@@ -90,48 +100,56 @@ func Producer(reader io.Reader, chunksChan chan<- *[][]byte, errChan chan<- erro
 
 	const batchSize = 1000
 
-	batchPtr := batchBytesPool.Get().(*[][]byte)
-	batch := *batchPtr
-	batch = batch[:0]
+	batch := batchPool.Get().(*Batch)
+	batch.Lines = batch.Lines[:0]
+	batch.Offset = 0
 
 	for scanner.Scan() {
 		raw := scanner.Bytes()
-		bCopy := make([]byte, len(raw)) // NOTE: This still allocates per line. For zero-allocation, a chunked byte arena is needed.
-		copy(bCopy, raw)
-		batch = append(batch, bCopy)
 
-		if len(batch) >= batchSize {
-			*batchPtr = batch
-			chunksChan <- batchPtr
+		// If the current arena is too small to fit the new line, allocate a new one.
+		if batch.Offset+len(raw) > len(batch.Arena) {
+			newCap := len(batch.Arena) * 2
+			if newCap < len(raw) {
+				newCap = len(raw) * 2
+			}
+			batch.Arena = make([]byte, newCap)
+			batch.Offset = 0
+		}
 
-			batchPtr = batchBytesPool.Get().(*[][]byte)
-			batch = *batchPtr
-			batch = batch[:0]
+		// Copy the dynamically read bytes into our pre-allocated Arena
+		n := copy(batch.Arena[batch.Offset:], raw)
+		batch.Lines = append(batch.Lines, batch.Arena[batch.Offset:batch.Offset+n])
+		batch.Offset += n
+
+		if len(batch.Lines) >= batchSize {
+			chunksChan <- batch
+
+			batch = batchPool.Get().(*Batch)
+			batch.Lines = batch.Lines[:0]
+			batch.Offset = 0
 		}
 	}
 
-	if len(batch) > 0 {
-		*batchPtr = batch
-		chunksChan <- batchPtr
+	if len(batch.Lines) > 0 {
+		chunksChan <- batch
 	}
 
 	// Always send to errChan to prevent deadlocks!
 	errChan <- scanner.Err()
 }
 
-func Worker(chunksChan <-chan *[][]byte, resultsChan chan<- result, wg *sync.WaitGroup) {
+func Worker(chunksChan <-chan *Batch, resultsChan chan<- result, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	for batchPtr := range chunksChan {
-		batch := *batchPtr
-
+	for batch := range chunksChan {
 		recordsPtr := recordsPool.Get().(*[]models.NetflowRecord)
 		records := *recordsPtr
 		records = records[:0]
 
 		var firstErr error
 
-		for _, rawBytes := range batch {
+		for _, rawBytes := range batch.Lines {
 			var record models.NetflowRecord
 			if err := record.UnmarshalJSON(rawBytes); err != nil {
 				if firstErr == nil {
@@ -150,8 +168,7 @@ func Worker(chunksChan <-chan *[][]byte, resultsChan chan<- result, wg *sync.Wai
 			recordsPool.Put(recordsPtr)
 		}
 
-		// Return batch byte slice to pool
-		*batchPtr = batch[:0]
-		batchBytesPool.Put(batchPtr)
+		// Return batch back to pool
+		batchPool.Put(batch)
 	}
 }
