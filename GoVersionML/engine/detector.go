@@ -46,6 +46,12 @@ func (d *Detector) ProcessRecord(record models.NetflowRecord) {
 	d.aggregator.Update(record)
 }
 
+// TotalCount returns the total number of records processed.
+// This allows Detector to satisfy the pipeline.RecordProcessor interface.
+func (d *Detector) TotalCount() int64 {
+	return atomic.LoadInt64(&d.TotalRecords)
+}
+
 func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
 	atomic.AddInt64(&d.TotalRecords, int64(len(records)))
 
