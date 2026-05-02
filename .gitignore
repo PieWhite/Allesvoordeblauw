@@ -30,3 +30,8 @@ capture20110810.json
 goedvoorTO.md.resolved
 GoVersionML/current_benchmark.txt
 GoVersionML/test_netflow.json
+GoVersionML/Xgboost/botnet_xgboost_fixed_v5.json
+GoVersionML/Xgboost/botnet_xgboost_fixed_v5_1_040.json
+GoVersionML/Xgboost/botnet_xgboost_fixed_v5_2.json
+GoVersionML/Xgboost/xgboostv5_1.json
+GoVersionML/Xgboost/xgboostv5_2.json
