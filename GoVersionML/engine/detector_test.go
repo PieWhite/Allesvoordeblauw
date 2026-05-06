@@ -96,8 +96,8 @@ func TestCalculateResults_LoggingAndContinue(t *testing.T) {
 	}
 
 	// Setup two unique IPs in the aggregator via Update
-	d.aggregator.Update(models.NetflowRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000"})
-	d.aggregator.Update(models.NetflowRecord{Src4Addr: "2.2.2.2", First: "2026-03-17T12:00:00.000"})
+	d.aggregator.Update(models.NetflowRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"})
+	d.aggregator.Update(models.NetflowRecord{Src4Addr: "2.2.2.2", First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"})
 
 	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
 		// Return 2 vectors, simulate failure for the first by returning nil
@@ -116,7 +116,7 @@ func TestDetector_ProcessRecord(t *testing.T) {
 	d := &Detector{
 		aggregator: NewAggregator(),
 	}
-	rec := models.NetflowRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000"}
+	rec := models.NetflowRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"}
 
 	d.ProcessRecord(rec)
 
@@ -140,5 +140,130 @@ func TestDetector_FormatResults_Threshold(t *testing.T) {
 		if res.IP == "benign" && res.IsBotnet {
 			t.Error("0.49 should not be marked as botnet")
 		}
+	}
+}
+
+func TestDetector_TotalCount(t *testing.T) {
+	d := &Detector{}
+	d.TotalRecords = 42
+	if d.TotalCount() != 42 {
+		t.Errorf("Expected 42, got %d", d.TotalCount())
+	}
+}
+
+func TestDetector_ProcessRecords(t *testing.T) {
+	d := &Detector{
+		aggregator: NewAggregator(),
+	}
+	records := []models.NetflowRecord{
+		{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"},
+		{Src4Addr: "2.2.2.2", First: "2026-03-17T12:05:00.000", Last: "2026-03-17T12:05:00.000"},
+		{Src4Addr: "3.3.3.3", First: "invalid-time-stamp"},
+	}
+	d.ProcessRecords(records)
+
+	if d.TotalCount() != 3 {
+		t.Errorf("Expected 3, got %d", d.TotalCount())
+	}
+}
+
+func TestDetector_updateMaxWindowAndFlush(t *testing.T) {
+	mock := &MockModel{}
+	d := &Detector{
+		aggregator: NewAggregator(),
+		model:      mock,
+		maxProbs:   make(map[string]float64),
+	}
+
+	// Insert data into aggregator with a window.
+	// 2026-03-17T12:00:00.000 is window 1773748800
+	rec := models.NetflowRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"}
+	d.ProcessRecord(rec)
+
+	var evaluateCalled bool
+	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
+		evaluateCalled = true
+		return mat.Matrix{Vectors: []*mat.Vector{{0.99}}}, nil
+	}
+
+	// flushOldWindows flushes if key.Window < threshold
+	// If win = 1773748800 + 400, threshold = win - 300 = 1773748800 + 100
+	baseWin := int64(1773748800)
+	d.updateMaxWindowAndFlush(baseWin + 400)
+
+	if !evaluateCalled {
+		t.Error("Expected evaluateBatch to be called via flushOldWindows")
+	}
+
+	if d.currentWindow.Load() != baseWin+400 {
+		t.Errorf("Expected currentWindow to be updated, got %d", d.currentWindow.Load())
+	}
+}
+
+type dummyError struct{}
+func (e dummyError) Error() string { return "dummy error" }
+
+func TestEvaluateBatch_ErrorHandling(t *testing.T) {
+	mock := &MockModel{}
+	d := &Detector{
+		aggregator: NewAggregator(),
+		model:      mock,
+		maxProbs:   make(map[string]float64),
+	}
+
+	stats := NewIPStats()
+	stats.IP = "1.2.3.4"
+
+	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
+		return mat.Matrix{}, dummyError{}
+	}
+
+	// This should not panic
+	d.evaluateBatch([]*IPStats{stats})
+
+	if len(d.maxProbs) != 0 {
+		t.Errorf("Expected maxProbs to be empty on error, got %d", len(d.maxProbs))
+	}
+}
+
+func TestEvaluateBatch_MaxProbUpdate(t *testing.T) {
+	mock := &MockModel{}
+	d := &Detector{
+		aggregator: NewAggregator(),
+		model:      mock,
+		maxProbs:   make(map[string]float64),
+	}
+
+	stats := NewIPStats()
+	stats.IP = "10.0.0.1"
+
+	// First update with 0.5
+	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
+		return mat.Matrix{Vectors: []*mat.Vector{{0.5}}}, nil
+	}
+	d.evaluateBatch([]*IPStats{stats})
+
+	if d.maxProbs["10.0.0.1"] != 0.5 {
+		t.Errorf("Expected 0.5, got %v", d.maxProbs["10.0.0.1"])
+	}
+
+	// Second update with 0.8 (should update)
+	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
+		return mat.Matrix{Vectors: []*mat.Vector{{0.8}}}, nil
+	}
+	d.evaluateBatch([]*IPStats{stats})
+
+	if math.Abs(d.maxProbs["10.0.0.1"]-float64(float32(0.8))) > 1e-6 {
+		t.Errorf("Expected ~0.8, got %v", d.maxProbs["10.0.0.1"])
+	}
+
+	// Third update with 0.3 (should NOT update)
+	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
+		return mat.Matrix{Vectors: []*mat.Vector{{0.3}}}, nil
+	}
+	d.evaluateBatch([]*IPStats{stats})
+
+	if math.Abs(d.maxProbs["10.0.0.1"]-float64(float32(0.8))) > 1e-6 {
+		t.Errorf("Expected ~0.8 after lower prob, got %v", d.maxProbs["10.0.0.1"])
 	}
 }
