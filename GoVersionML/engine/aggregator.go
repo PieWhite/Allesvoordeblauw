@@ -1,4 +1,4 @@
-﻿package engine
+package engine
 
 import (
 	"hash/fnv"
@@ -187,4 +187,3 @@ func (a *Aggregator) ExtractAndFlushBefore(window int64) []*IPStats {
 	}
 	return flushed
 }
-

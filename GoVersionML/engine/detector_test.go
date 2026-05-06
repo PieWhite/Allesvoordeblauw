@@ -201,6 +201,7 @@ func TestDetector_updateMaxWindowAndFlush(t *testing.T) {
 }
 
 type dummyError struct{}
+
 func (e dummyError) Error() string { return "dummy error" }
 
 func TestEvaluateBatch_ErrorHandling(t *testing.T) {

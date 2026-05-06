@@ -172,7 +172,7 @@ func TestStreamNetflowV2_ProcessFnConcurrency(t *testing.T) {
 {"in_packets":3}
 `
 	reader := strings.NewReader(jsonData)
-	
+
 	var mu sync.Mutex
 	var collected []int64
 
@@ -191,7 +191,7 @@ func TestStreamNetflowV2_ProcessFnConcurrency(t *testing.T) {
 	if len(collected) != 3 {
 		t.Fatalf("Expected 3 records, got %d", len(collected))
 	}
-	
+
 	// Check if 1, 2, 3 are all present
 	found := make(map[int64]bool)
 	for _, v := range collected {

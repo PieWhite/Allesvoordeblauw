@@ -83,10 +83,10 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) err
 		wgResults.Add(1)
 		go func(recordsPtr *[]models.NetflowRecord) {
 			processFn(*recordsPtr)
-			
+
 			*recordsPtr = (*recordsPtr)[:0]
 			recordsPool.Put(recordsPtr)
-			
+
 			wgResults.Done()
 		}(res.records)
 	}
