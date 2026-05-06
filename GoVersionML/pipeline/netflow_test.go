@@ -88,6 +88,17 @@ func TestExecute(t *testing.T) {
 			t.Errorf("expected 0 count on error, got %d", count)
 		}
 	})
+
+	t.Run("NilStream", func(t *testing.T) {
+		processor := &mockProcessor{}
+		_, _, err := execute(nil, processor, nil)
+		if err == nil {
+			t.Fatalf("expected error for nil stream, got nil")
+		}
+		if !strings.Contains(err.Error(), "stream function cannot be nil") {
+			t.Errorf("expected 'stream function cannot be nil' error, got: %v", err)
+		}
+	})
 }
 
 func TestAnalyzeFile(t *testing.T) {
@@ -136,6 +147,16 @@ func TestAnalyzeFile(t *testing.T) {
 
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("NilStream", func(t *testing.T) {
+		_, _, err := AnalyzeFile("dummy.json", validModel, nil)
+		if err == nil {
+			t.Fatalf("expected error for nil stream, got nil")
+		}
+		if !strings.Contains(err.Error(), "stream function cannot be nil") {
+			t.Errorf("expected 'stream function cannot be nil' error, got: %v", err)
 		}
 	})
 }

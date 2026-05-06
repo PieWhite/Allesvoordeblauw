@@ -23,6 +23,10 @@ func AnalyzeFile(inputPath string, modelPath string, stream StreamFn) ([]models.
 		return nil, 0, fmt.Errorf("failed loading xgboost model: %w", err)
 	}
 
+	if stream == nil {
+		return nil, 0, fmt.Errorf("stream function cannot be nil")
+	}
+
 	file, err := os.Open(inputPath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to open input file: %w", err)
@@ -33,6 +37,9 @@ func AnalyzeFile(inputPath string, modelPath string, stream StreamFn) ([]models.
 }
 
 func execute(r io.Reader, processor RecordProcessor, stream StreamFn) ([]models.MLResult, int64, error) {
+	if stream == nil {
+		return nil, 0, fmt.Errorf("stream function cannot be nil")
+	}
 	if err := stream(r, processor.ProcessRecords); err != nil {
 		return nil, 0, fmt.Errorf("failed to stream netflow data: %w", err)
 	}
