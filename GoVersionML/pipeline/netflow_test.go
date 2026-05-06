@@ -91,10 +91,14 @@ func TestExecute(t *testing.T) {
 }
 
 func TestAnalyzeFile(t *testing.T) {
-	validModel := "../Xgboost/botnet_xgboost_fixed_v5.json"
+	validModel := "../Xgboost/botnet_xgboost.json"
+
+	mockScanner := func(r io.Reader, fn func([]models.NetflowRecord)) error {
+		return nil
+	}
 
 	t.Run("InvalidModelPath", func(t *testing.T) {
-		_, _, err := AnalyzeFile("dummy.json", "invalid/path/to/model.json")
+		_, _, err := AnalyzeFile("dummy.json", "invalid/path/to/model.json", mockScanner)
 		if err == nil {
 			t.Fatalf("expected error for invalid model path, got nil")
 		}
@@ -102,7 +106,7 @@ func TestAnalyzeFile(t *testing.T) {
 
 	t.Run("InvalidInputPath", func(t *testing.T) {
 		// Valid model, but invalid input file
-		_, _, err := AnalyzeFile("nonexistent_input.json", validModel)
+		_, _, err := AnalyzeFile("nonexistent_input.json", validModel, mockScanner)
 		if err == nil {
 			t.Fatalf("expected error for missing input file, got nil")
 		}
@@ -128,13 +132,10 @@ func TestAnalyzeFile(t *testing.T) {
 
 		// Test success execution
 		// Note: since this does actual ML inference setup, it may return some empty result or an error based on the ML engine if it expects specific format
-		_, _, err = AnalyzeFile(tempFile.Name(), validModel)
+		_, _, err = AnalyzeFile(tempFile.Name(), validModel, mockScanner)
 
-		// Assuming StreamNetflowV2 returns successfully on valid but single JSON
-		// If it errors due to empty stream/etc, we handle it
-		if err != nil && !strings.Contains(err.Error(), "failed to stream") {
-			// It might fail on stream, but at least we reached execute
-			// But ideally we want it to not panic and pass properly
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 }
