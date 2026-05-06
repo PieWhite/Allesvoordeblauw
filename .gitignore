@@ -47,3 +47,8 @@ GoVersionML/baseline.txt
 GoVersionML/current_benchmark.txt
 GoVersionML/Xgboost/xgboostv5_best_final.json
 GoVersionML/test_netflow.ndjson
+GoVersionML/Xgboost/xgboostv5_2.json
+GoVersionML/Xgboost/xgboostv5_1.json
+GoVersionML/Xgboost/botnet_xgboost_fixed_v5_2.json
+GoVersionML/Xgboost/botnet_xgboost_fixed_v5_1_040.json
+GoVersionML/Xgboost/botnet_xgboost_fixed_v5.json

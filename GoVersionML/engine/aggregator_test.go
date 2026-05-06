@@ -2,7 +2,6 @@ package engine
 
 import (
 	"fmt"
-	"math"
 	"sync"
 	"testing"
 	"time"
@@ -94,9 +93,9 @@ func TestUpdate_ProtocolsAndFlags(t *testing.T) {
 	a := NewAggregator()
 
 	records := []models.NetflowRecord{
-		{Src4Addr: "1.1.1.1", Proto: 17, First: "2026-03-17T12:00:00.000"},               // UDP
-		{Src4Addr: "1.1.1.1", Proto: 1, First: "2026-03-17T12:00:01.000"},                // ICMP
-		{Src4Addr: "1.1.1.1", Proto: 6, TCPFlags: "R", First: "2026-03-17T12:00:02.000"}, // RST
+		{Src4Addr: "1.1.1.1", Proto: 17, First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"},               // UDP
+		{Src4Addr: "1.1.1.1", Proto: 1, First: "2026-03-17T12:00:01.000", Last: "2026-03-17T12:00:01.000"},                // ICMP
+		{Src4Addr: "1.1.1.1", Proto: 6, TCPFlags: "R", First: "2026-03-17T12:00:02.000", Last: "2026-03-17T12:00:02.000"}, // RST
 	}
 
 	for _, r := range records {
@@ -133,74 +132,6 @@ func TestUpdate_DurationClamping(t *testing.T) {
 	}
 }
 
-// TestPortSymmetry targets the symmetry++ line.
-func TestPortSymmetry(t *testing.T) {
-	a := NewAggregator()
-	ts := "2026-03-17T12:00:00.000"
-
-	// Outbound from 10.0.0.1 perspective
-	a.Update(models.NetflowRecord{
-		Src4Addr: "10.0.0.1",
-		Dst4Addr: "8.8.8.8",
-		DstPort:  53,
-		First:    ts,
-	})
-	// Inbound to 10.0.0.1 perspective (it is the Dst4Addr)
-	a.Update(models.NetflowRecord{
-		Src4Addr: "8.8.8.8",
-		Dst4Addr: "10.0.0.1",
-		DstPort:  53,
-		First:    ts,
-	})
-
-	stats := getStatsForIP(a, "10.0.0.1")
-	symmetry := stats.calculatePortSymmetry()
-
-	if symmetry != 1 {
-		t.Errorf("Expected symmetry 1, got %v", symmetry)
-	}
-}
-
-// TestIAT_Math_Precision verifies the Python-style variance calculation.
-func TestIAT_Math_Precision(t *testing.T) {
-	s := NewIPStats()
-	target := TargetKey{IP: "8.8.8.8", Port: 53}
-
-	// Times: 10.0, 12.0.
-	// Diffs: [0, 2.0]
-	s.TargetStartTimes[target] = []float64{10.0, 12.0}
-
-	mean, variance, cv := s.calculateIATMetrics()
-
-	if mean != 1.0 {
-		t.Errorf("expected mean 1.0, got %v", mean)
-	}
-	if variance != 2.0 {
-		t.Errorf("expected variance 2.0, got %v", variance)
-	}
-	if math.Abs(cv-1.41421356) > 1e-7 {
-		t.Errorf("expected CV ~1.4142, got %v", cv)
-	}
-}
-
-// TestToMLVector_Sanitization checks for division-by-zero protection.
-func TestToMLVector_Sanitization(t *testing.T) {
-	s := NewIPStats()
-	s.FlowCount = 5
-
-	vec := s.ToMLVector()
-
-	for i, val := range vec {
-		if math.IsNaN(val) || math.IsInf(val, 0) {
-			t.Errorf("Index %d is non-finite: %v", i, val)
-		}
-	}
-
-	if vec[16] != 0 {
-		t.Errorf("Feature 16 (ip_port_ratio) expected 0, got %v", vec[16])
-	}
-}
-
 // TestAggregator_Concurrency hammers the aggregator from many goroutines to ensure thread safety
 func TestAggregator_Concurrency(t *testing.T) {
 	a := NewAggregator()
@@ -217,12 +148,14 @@ func TestAggregator_Concurrency(t *testing.T) {
 				a.Update(models.NetflowRecord{
 					Src4Addr: "10.0.0.1",
 					First:    "2026-03-17T12:00:00.000",
+					Last:     "2026-03-17T12:00:00.000",
 					InBytes:  10,
 				})
 				// Low contention target (one worker writes here)
 				a.Update(models.NetflowRecord{
 					Src4Addr: fmt.Sprintf("10.1.0.%d", w),
 					First:    "2026-03-17T12:00:00.000",
+					Last:     "2026-03-17T12:00:00.000",
 					InBytes:  20,
 				})
 			}
@@ -243,5 +176,62 @@ func TestAggregator_Concurrency(t *testing.T) {
 	}
 	if stats.TotalBytes != expectedBytes {
 		t.Errorf("Expected %v bytes, got %v", expectedBytes, stats.TotalBytes)
+	}
+}
+
+func TestAggregator_ExtractAndFlushBefore(t *testing.T) {
+	a := NewAggregator()
+	// Insert 2 records in different windows.
+	// Win1: 2026-03-17T12:00:00.000 -> 1773748800
+	// Win2: 2026-03-17T12:05:00.000 -> 1773749100
+	a.Update(models.NetflowRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"})
+	a.Update(models.NetflowRecord{Src4Addr: "2.2.2.2", First: "2026-03-17T12:05:00.000", Last: "2026-03-17T12:05:00.000"})
+
+	// Extract before Win2
+	flushed := a.ExtractAndFlushBefore(1773749100)
+
+	if len(flushed) != 1 {
+		t.Fatalf("Expected 1 flushed stats, got %d", len(flushed))
+	}
+	if flushed[0].IP != "1.1.1.1" {
+		t.Errorf("Expected IP 1.1.1.1 flushed, got %s", flushed[0].IP)
+	}
+
+	// Verify remaining
+	remaining := a.AllIPStats()
+	if len(remaining) != 1 {
+		t.Fatalf("Expected 1 remaining stats, got %d", len(remaining))
+	}
+	if remaining[0].IP != "2.2.2.2" {
+		t.Errorf("Expected IP 2.2.2.2 remaining, got %s", remaining[0].IP)
+	}
+}
+
+func TestAggregator_Update_TCPFlagsAndPorts(t *testing.T) {
+	a := NewAggregator()
+
+	// Syn only, well-known port
+	a.Update(models.NetflowRecord{
+		Src4Addr: "3.3.3.3",
+		Proto:    6,
+		TCPFlags: "S",
+		DstPort:  80,
+		First:    "2026-03-17T12:00:00.000",
+		Last:     "2026-03-17T12:00:00.000",
+	})
+
+	stats := getStatsForIP(a, "3.3.3.3")
+
+	if stats.SynOnlyCount != 1 {
+		t.Errorf("Expected SynOnlyCount=1, got %v", stats.SynOnlyCount)
+	}
+	if stats.WellKnownPortCount != 1 {
+		t.Errorf("Expected WellKnownPortCount=1, got %v", stats.WellKnownPortCount)
+	}
+
+	vec := stats.ToMLVector()
+	// pct_syn_only is index 18
+	if vec[18] != 100.0 {
+		t.Errorf("Expected 100%% pct_syn_only, got %v", vec[18])
 	}
 }

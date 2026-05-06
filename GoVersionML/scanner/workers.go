@@ -92,7 +92,7 @@ func processJsonLines(chunksChan <-chan []byte, resultsChan chan<- result, wg *s
 		} else {
 			recordsPool.Put(recordsPtr)
 		}
-		
+
 		returnChunkToPool(chunk)
 	}
 }

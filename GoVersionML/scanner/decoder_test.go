@@ -1,8 +1,8 @@
 package scanner
 
 import (
-	"testing"
 	"goversion/models"
+	"testing"
 )
 
 func TestDecodeChunkArray(t *testing.T) {

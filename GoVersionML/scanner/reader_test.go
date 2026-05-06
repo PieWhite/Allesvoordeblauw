@@ -30,7 +30,7 @@ func TestChunkPool(t *testing.T) {
 		if len(chunk2) != chunkSize {
 			t.Errorf("expected len %d", chunkSize)
 		}
-		
+
 		// Testing if we actually pull from the pool is somewhat tricky due to gc runtime
 		// but we can verify it doesn't panic.
 	})
@@ -46,7 +46,7 @@ func TestReadjsonByDelimiter(t *testing.T) {
 	t.Run("Normal NDJSON Newline Delimiting", func(t *testing.T) {
 		input := "line1\nline2\nline3\n"
 		r := strings.NewReader(input)
-		
+
 		chunksChan := make(chan []byte, 10)
 		errChan := make(chan error, 1)
 
@@ -74,7 +74,7 @@ func TestReadjsonByDelimiter(t *testing.T) {
 	t.Run("Normal JSON Array Bracket Delimiting", func(t *testing.T) {
 		input := `{"a": 1},{"b": 2}`
 		r := strings.NewReader(input)
-		
+
 		chunksChan := make(chan []byte, 10)
 		errChan := make(chan error, 1)
 
@@ -135,7 +135,7 @@ func TestReadjsonByDelimiter(t *testing.T) {
 
 	t.Run("Empty Reader", func(t *testing.T) {
 		r := strings.NewReader("")
-		
+
 		chunksChan := make(chan []byte, 10)
 		errChan := make(chan error, 1)
 

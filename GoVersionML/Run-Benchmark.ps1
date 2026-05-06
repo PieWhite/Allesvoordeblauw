@@ -41,7 +41,7 @@ Write-Host "Starting Go E2E Benchmarks (Running 5 passes for accuracy)" -Foregro
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "Please wait... This might take a few minutes for large files.`n" -ForegroundColor Yellow
 
-$Command = "go test ./main -bench=BenchmarkEndToEnd -benchmem -count=6 -timeout=30m $ProfileFlags"
+$Command = "go test ./main -bench=BenchmarkEndToEnd -run=^$ -benchmem -count=6 -timeout=30m $ProfileFlags"
 Invoke-Expression "$Command | Out-File -FilePath $OutputFile -Encoding utf8"
 
 if ($SaveBaseline) {
