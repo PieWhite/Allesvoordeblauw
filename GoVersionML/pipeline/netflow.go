@@ -2,15 +2,23 @@ package pipeline
 
 import (
 	"fmt"
+	"io"
+	"os"
+
 	"goversion/engine"
 	"goversion/models"
-	"goversion/scanner"
 	"goversion/scannerv2"
-	"os"
 )
 
-func RunNetflow(inputPath string, modelPath string, jsonVersion string) ([]models.MLResult, int64, error) {
+type RecordProcessor interface {
+	ProcessRecords([]models.NetflowRecord)
+	CalculateResults() []models.MLResult
+	TotalCount() int64
+}
 
+type StreamFn func(r io.Reader, fn func([]models.NetflowRecord)) error
+
+func AnalyzeFile(inputPath string, modelPath string) ([]models.MLResult, int64, error) {
 	detector, err := engine.NewDetector(modelPath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed loading xgboost model: %w", err)
@@ -22,19 +30,14 @@ func RunNetflow(inputPath string, modelPath string, jsonVersion string) ([]model
 	}
 	defer file.Close()
 
-	switch jsonVersion {
-	case ".ndjson":
-		if err := scannerv2.StreamNetflowV2(file, detector.ProcessRecords); err != nil {
-			return nil, 0, fmt.Errorf("failed to stream netflow data from %q: %w", inputPath, err)
-		}
-	case ".json":
-		if err := scanner.StreamNetflow(file, detector.ProcessRecords); err != nil {
-			return nil, 0, fmt.Errorf("failed to stream netflow data from %q: %w", inputPath, err)
-		}
-	default:
-		return nil, 0, fmt.Errorf("unsupported file extension %q: expected json or ndjson", jsonVersion)
+	return execute(file, detector, scannerv2.StreamNetflowV2)
+}
+
+func execute(r io.Reader, processor RecordProcessor, stream StreamFn) ([]models.MLResult, int64, error) {
+	if err := stream(r, processor.ProcessRecords); err != nil {
+		return nil, 0, fmt.Errorf("failed to stream netflow data: %w", err)
 	}
 
-	results := detector.CalculateResults()
-	return results, detector.TotalRecords, nil
+	results := processor.CalculateResults()
+	return results, processor.TotalCount(), nil
 }

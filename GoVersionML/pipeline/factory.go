@@ -15,7 +15,7 @@ func RunPipelineForInput(cfg *config.AppConfig) ([]models.MLResult, int64, error
 		return nil, 0, fmt.Errorf("pcap pipeline is not yet implemented")
 	}
 	if ext == ".json" || ext == ".ndjson" {
-		return RunNetflow(cfg.InputPath, cfg.ModelPath, ext)
+		return AnalyzeFile(cfg.InputPath, cfg.ModelPath)
 	}
 
 	return nil, 0, fmt.Errorf("unsupported file extension: %s", ext)
