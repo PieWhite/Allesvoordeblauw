@@ -24,14 +24,14 @@ func processJsonArray(chunksChan <-chan []byte, resultsChan chan<- result, wg *s
 			fallbackDecoder := json.NewDecoder(bytes.NewReader(wrappedBuf.Bytes()))
 			_, _ = fallbackDecoder.Token()
 			for fallbackDecoder.More() {
-				var rec models.NetflowRecord
+				var rec netflowRecordNoEasyJSON
 				if errUnm := fallbackDecoder.Decode(&rec); errUnm != nil {
 					resultsChan <- result{records: recordsPtr}
 					resultsChan <- result{err: fmt.Errorf("json array corruption: %w", errUnm)}
 					wrapPool.Put(wrappedBuf)
 					return
 				}
-				*recordsPtr = append(*recordsPtr, rec)
+				*recordsPtr = append(*recordsPtr, models.NetflowRecord(rec))
 			}
 			resultsChan <- result{records: recordsPtr}
 			wrapPool.Put(wrappedBuf)
@@ -78,12 +78,12 @@ func processJsonLines(chunksChan <-chan []byte, resultsChan chan<- result, wg *s
 				continue
 			}
 
-			var rec models.NetflowRecord
+			var rec netflowRecordNoEasyJSON
 			if errUnm := json.Unmarshal(line, &rec); errUnm != nil {
 				fmt.Printf("Skipping malformed NDJSON line: %v\n", errUnm)
 				continue
 			}
-			records = append(records, rec)
+			records = append(records, models.NetflowRecord(rec))
 		}
 
 		if len(records) > 0 {

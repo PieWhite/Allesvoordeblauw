@@ -28,8 +28,12 @@ func decodeChunkArray(chunk []byte, recordsPtr *[]models.NetflowRecord) (*bytes.
 	buf.Write(cleanChunk)
 	buf.WriteByte(']')
 
-	if err := json.Unmarshal(buf.Bytes(), recordsPtr); err != nil {
+	var tmp []netflowRecordNoEasyJSON
+	if err := json.Unmarshal(buf.Bytes(), &tmp); err != nil {
 		return buf, err
+	}
+	if len(tmp) > 0 {
+		*recordsPtr = appendNetflowRecordSlice(*recordsPtr, tmp)
 	}
 
 	return buf, nil
