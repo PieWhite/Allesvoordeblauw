@@ -12,12 +12,14 @@ import (
 type result struct {
 	records *[]models.NetflowRecord
 	err     error
+	seq     int
 }
 
 type Batch struct {
 	Lines  [][]byte
 	Arena  []byte
 	Offset int
+	Seq    int
 }
 
 // Pool for Batches to avoid allocation every batch
@@ -62,25 +64,39 @@ func StreamNetflowV2(stream io.Reader, processFn func([]models.NetflowRecord)) e
 	}()
 
 	var firstErr error
+	var nextSeq int
+	pending := make(map[int]result)
 
 	for res := range resultsChan {
-		// 1. Track the first error encountered, but do NOT halt or skip the iteration.
-		if res.err != nil && firstErr == nil {
-			firstErr = res.err
-		}
+		// Store the result in the pending map for resequencing
+		pending[res.seq] = res
 
-		// 2. If the worker parsed ANY valid records (even if an error also occurred in this batch), process them.
-		if res.records != nil && len(*res.records) > 0 {
-			processFn(*res.records)
-		}
+		// Process as many results as we can in the correct order
+		for {
+			r, ok := pending[nextSeq]
+			if !ok {
+				break
+			}
+			delete(pending, nextSeq)
 
-		// 3. Always recycle the slice back into the pool to prevent memory leaks.
-		if res.records != nil {
-			recordsPtr := res.records
-			// IMPORTANT: If processFn spins off a goroutine that keeps res.records,
-			// you cannot pool it here! In that case, processFn must copy it or pool it itself.
-			*recordsPtr = (*recordsPtr)[:0]
-			recordsPool.Put(recordsPtr)
+			// 1. Track the first error encountered, but do NOT halt or skip the iteration.
+			if r.err != nil && firstErr == nil {
+				firstErr = r.err
+			}
+
+			// 2. If the worker parsed ANY valid records (even if an error also occurred in this batch), process them.
+			if r.records != nil && len(*r.records) > 0 {
+				processFn(*r.records)
+			}
+
+			// 3. Always recycle the slice back into the pool to prevent memory leaks.
+			if r.records != nil {
+				recordsPtr := r.records
+				*recordsPtr = (*recordsPtr)[:0]
+				recordsPool.Put(recordsPtr)
+			}
+
+			nextSeq++
 		}
 	}
 
@@ -99,10 +115,13 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error) 
 	scanner.Buffer(buf, 10*1024*1024)
 
 	const batchSize = 1000
+	seq := 0
 
 	batch := batchPool.Get().(*Batch)
 	batch.Lines = batch.Lines[:0]
 	batch.Offset = 0
+	batch.Seq = seq
+	seq++
 
 	for scanner.Scan() {
 		raw := scanner.Bytes()
@@ -128,6 +147,8 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error) 
 			batch = batchPool.Get().(*Batch)
 			batch.Lines = batch.Lines[:0]
 			batch.Offset = 0
+			batch.Seq = seq
+			seq++
 		}
 	}
 
@@ -162,7 +183,7 @@ func Worker(chunksChan <-chan *Batch, resultsChan chan<- result, wg *sync.WaitGr
 
 		if len(records) > 0 || firstErr != nil {
 			*recordsPtr = records // Update the slice header in the pointer
-			resultsChan <- result{records: recordsPtr, err: firstErr}
+			resultsChan <- result{records: recordsPtr, err: firstErr, seq: batch.Seq}
 		} else {
 			// If empty and no error, return the pointer to the pool to prevent leaks
 			recordsPool.Put(recordsPtr)

@@ -201,3 +201,35 @@ func TestStreamNetflowV2_ProcessFnConcurrency(t *testing.T) {
 		t.Fatalf("Expected 1, 2, and 3, got: %v", collected)
 	}
 }
+
+func TestStreamNetflowV2_Resequencing(t *testing.T) {
+	// Generate enough records to create multiple batches (batchSize is 1000)
+	const numRecords = 5000
+	var builder strings.Builder
+	for i := 0; i < numRecords; i++ {
+		// Store the index in InPackets to verify order
+		builder.WriteString(fmt.Sprintf(`{"in_packets":%d}`+"\n", i))
+	}
+
+	reader := strings.NewReader(builder.String())
+	var lastSeen int64 = -1
+	var totalProcessed int32
+
+	err := StreamNetflowV2(reader, func(records []models.NetflowRecord) {
+		for _, r := range records {
+			if r.InPackets != lastSeen+1 {
+				t.Errorf("Out of order record! Expected %d, got %d", lastSeen+1, r.InPackets)
+			}
+			lastSeen = r.InPackets
+			atomic.AddInt32(&totalProcessed, 1)
+		}
+	})
+
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if totalProcessed != numRecords {
+		t.Fatalf("Expected %d records, got %d", numRecords, totalProcessed)
+	}
+}
