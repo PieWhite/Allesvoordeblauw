@@ -9,10 +9,7 @@ import (
 	"goversion/utils"
 )
 
-type result struct {
-	records *[]models.NetflowRecord
-	err     error
-}
+
 
 type Batch struct {
 	Lines  [][]byte
@@ -45,7 +42,7 @@ func StreamNetflowV2(stream io.Reader, processFn func([]models.NetflowRecord)) e
 
 	// Use pointers for channel communication to avoid copying
 	chunksChan := make(chan *Batch, numWorkers*2)
-	resultsChan := make(chan result, numWorkers*2)
+	resultsChan := make(chan models.ScanResult, numWorkers*2)
 	errChan := make(chan error, 1)
 
 	var wg sync.WaitGroup
@@ -65,18 +62,18 @@ func StreamNetflowV2(stream io.Reader, processFn func([]models.NetflowRecord)) e
 
 	for res := range resultsChan {
 		// 1. Track the first error encountered, but do NOT halt or skip the iteration.
-		if res.err != nil && firstErr == nil {
-			firstErr = res.err
+		if res.Err != nil && firstErr == nil {
+			firstErr = res.Err
 		}
 
 		// 2. If the worker parsed ANY valid records (even if an error also occurred in this batch), process them.
-		if res.records != nil && len(*res.records) > 0 {
-			processFn(*res.records)
+		if res.Records != nil && len(*res.Records) > 0 {
+			processFn(*res.Records)
 		}
 
 		// 3. Always recycle the slice back into the pool to prevent memory leaks.
-		if res.records != nil {
-			recordsPtr := res.records
+		if res.Records != nil {
+			recordsPtr := res.Records
 			// IMPORTANT: If processFn spins off a goroutine that keeps res.records,
 			// you cannot pool it here! In that case, processFn must copy it or pool it itself.
 			*recordsPtr = (*recordsPtr)[:0]
@@ -139,7 +136,7 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error) 
 	errChan <- scanner.Err()
 }
 
-func Worker(chunksChan <-chan *Batch, resultsChan chan<- result, wg *sync.WaitGroup) {
+func Worker(chunksChan <-chan *Batch, resultsChan chan<- models.ScanResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for batch := range chunksChan {
@@ -162,7 +159,7 @@ func Worker(chunksChan <-chan *Batch, resultsChan chan<- result, wg *sync.WaitGr
 
 		if len(records) > 0 || firstErr != nil {
 			*recordsPtr = records // Update the slice header in the pointer
-			resultsChan <- result{records: recordsPtr, err: firstErr}
+			resultsChan <- models.ScanResult{Records: recordsPtr, Err: firstErr}
 		} else {
 			// If empty and no error, return the pointer to the pool to prevent leaks
 			recordsPool.Put(recordsPtr)

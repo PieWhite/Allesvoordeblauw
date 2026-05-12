@@ -13,10 +13,13 @@ type NetflowRecord struct {
 	Dst4Addr  string `json:"dst4_addr"`
 }
 
-// MLResult holds the final model prediction for a single IP.
-
 type MLResult struct {
 	IP          string
 	Probability float64
 	IsBotnet    bool
+}
+
+type ScanResult struct {
+	Records *[]NetflowRecord
+	Err     error
 }
