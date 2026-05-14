@@ -10,7 +10,7 @@ import (
 	"goversion/models"
 )
 
-func processJsonArray(chunksChan <-chan []byte, resultsChan chan<- result, wg *sync.WaitGroup) {
+func processJsonArray(chunksChan <-chan []byte, resultsChan chan<- models.ScanResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for chunk := range chunksChan {
 		recordsPtr := recordsPool.Get().(*[]models.NetflowRecord)
@@ -26,14 +26,14 @@ func processJsonArray(chunksChan <-chan []byte, resultsChan chan<- result, wg *s
 			for fallbackDecoder.More() {
 				var rec models.NetflowRecord
 				if errUnm := fallbackDecoder.Decode(&rec); errUnm != nil {
-					resultsChan <- result{records: recordsPtr}
-					resultsChan <- result{err: fmt.Errorf("json array corruption: %w", errUnm)}
+					resultsChan <- models.ScanResult{Records: recordsPtr}
+					resultsChan <- models.ScanResult{Err: fmt.Errorf("json array corruption: %w", errUnm)}
 					wrapPool.Put(wrappedBuf)
 					return
 				}
 				*recordsPtr = append(*recordsPtr, rec)
 			}
-			resultsChan <- result{records: recordsPtr}
+			resultsChan <- models.ScanResult{Records: recordsPtr}
 			wrapPool.Put(wrappedBuf)
 			continue
 		}
@@ -43,14 +43,14 @@ func processJsonArray(chunksChan <-chan []byte, resultsChan chan<- result, wg *s
 		}
 
 		if len(*recordsPtr) > 0 {
-			resultsChan <- result{records: recordsPtr}
+			resultsChan <- models.ScanResult{Records: recordsPtr}
 		} else {
 			recordsPool.Put(recordsPtr)
 		}
 	}
 }
 
-func processJsonLines(chunksChan <-chan []byte, resultsChan chan<- result, wg *sync.WaitGroup) {
+func processJsonLines(chunksChan <-chan []byte, resultsChan chan<- models.ScanResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for chunk := range chunksChan {
 		recordsPtr := recordsPool.Get().(*[]models.NetflowRecord)
@@ -88,7 +88,7 @@ func processJsonLines(chunksChan <-chan []byte, resultsChan chan<- result, wg *s
 
 		if len(records) > 0 {
 			*recordsPtr = records
-			resultsChan <- result{records: recordsPtr}
+			resultsChan <- models.ScanResult{Records: recordsPtr}
 		} else {
 			recordsPool.Put(recordsPtr)
 		}

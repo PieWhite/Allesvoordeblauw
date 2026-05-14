@@ -10,10 +10,7 @@ import (
 	"goversion/utils"
 )
 
-type result struct {
-	records *[]models.NetflowRecord
-	err     error
-}
+
 
 var recordsPool = sync.Pool{
 	New: func() interface{} {
@@ -46,7 +43,7 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) err
 	numWorkers := utils.OptimalWorkerCount()
 
 	chunksChan := make(chan []byte, numWorkers*2)
-	resultsChan := make(chan result, numWorkers*2)
+	resultsChan := make(chan models.ScanResult, numWorkers*2)
 	errChan := make(chan error, 1)
 
 	var wg sync.WaitGroup
@@ -74,9 +71,9 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) err
 	var wgResults sync.WaitGroup
 
 	for res := range resultsChan {
-		if res.err != nil {
+		if res.Err != nil {
 			if firstErr == nil {
-				firstErr = res.err
+				firstErr = res.Err
 			}
 			continue
 		}
@@ -88,7 +85,7 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) err
 			recordsPool.Put(recordsPtr)
 
 			wgResults.Done()
-		}(res.records)
+		}(res.Records)
 	}
 
 	wgResults.Wait()
