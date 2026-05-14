@@ -3,12 +3,14 @@ package JSONScanner
 import (
 	"sync"
 	"testing"
+
+	"goversion/models"
 )
 
 func TestProcessJsonArray(t *testing.T) {
 	t.Run("Valid Array Chunk", func(t *testing.T) {
 		chunksChan := make(chan []byte, 1)
-		resultsChan := make(chan result, 1)
+		resultsChan := make(chan models.ScanResult, 1)
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -25,22 +27,22 @@ func TestProcessJsonArray(t *testing.T) {
 		close(resultsChan)
 
 		res := <-resultsChan
-		if res.err != nil {
-			t.Fatalf("unexpected err: %v", res.err)
+		if res.Err != nil {
+			t.Fatalf("unexpected Err: %v", res.Err)
 		}
-		if len(*res.records) != 2 {
-			t.Fatalf("expected 2 records, got %v", len(*res.records))
+		if len(*res.Records) != 2 {
+			t.Fatalf("expected 2 Records, got %v", len(*res.Records))
 		}
 	})
 
 	t.Run("Corrupted Array Chunk - Fallback Recovery", func(t *testing.T) {
 		chunksChan := make(chan []byte, 1)
-		resultsChan := make(chan result, 2)
+		resultsChan := make(chan models.ScanResult, 2)
 
 		var wg sync.WaitGroup
 		wg.Add(1)
 
-		// Create a chunk with valid initial records but a trailing corruption
+		// Create a chunk with valid initial Records but a trailing corruption
 		chunk := make([]byte, chunkSize)
 		data := []byte(`{"src4_addr": "1.1.1.1"},{"src4_addr": "2.2.2.2"},{corrupted}`)
 		copy(chunk, data)
@@ -51,22 +53,22 @@ func TestProcessJsonArray(t *testing.T) {
 		wg.Wait()
 		close(resultsChan)
 
-		// Read all results to see where it errored
+		// Read all models.ScanResults to see where it Errored
 		successRecords := 0
 		var finalErr error
 		for r := range resultsChan {
-			if r.err != nil {
-				finalErr = r.err
+			if r.Err != nil {
+				finalErr = r.Err
 			} else {
-				successRecords += len(*r.records)
+				successRecords += len(*r.Records)
 			}
 		}
 
 		if finalErr == nil {
-			t.Fatalf("expected error from corrupted token")
+			t.Fatalf("expected Error from corrupted token")
 		}
 		if successRecords != 2 {
-			t.Fatalf("expected 2 recovered records, got %d", successRecords)
+			t.Fatalf("expected 2 recovered Records, got %d", successRecords)
 		}
 	})
 }
@@ -74,7 +76,7 @@ func TestProcessJsonArray(t *testing.T) {
 func TestProcessJsonLines(t *testing.T) {
 	t.Run("Valid NDJSON Chunk", func(t *testing.T) {
 		chunksChan := make(chan []byte, 1)
-		resultsChan := make(chan result, 1)
+		resultsChan := make(chan models.ScanResult, 1)
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -90,17 +92,17 @@ func TestProcessJsonLines(t *testing.T) {
 		close(resultsChan)
 
 		res := <-resultsChan
-		if res.err != nil {
-			t.Fatalf("unexpected err: %v", res.err)
+		if res.Err != nil {
+			t.Fatalf("unexpected Err: %v", res.Err)
 		}
-		if len(*res.records) != 2 {
-			t.Fatalf("expected 2 records, got %v", len(*res.records))
+		if len(*res.Records) != 2 {
+			t.Fatalf("expected 2 Records, got %v", len(*res.Records))
 		}
 	})
 
 	t.Run("Corrupted NDJSON Chunk - Continues", func(t *testing.T) {
 		chunksChan := make(chan []byte, 1)
-		resultsChan := make(chan result, 1)
+		resultsChan := make(chan models.ScanResult, 1)
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -119,12 +121,12 @@ func TestProcessJsonLines(t *testing.T) {
 		close(resultsChan)
 
 		res := <-resultsChan
-		if res.err != nil {
-			t.Fatalf("unexpected err: %v", res.err)
+		if res.Err != nil {
+			t.Fatalf("unexpected Err: %v", res.Err)
 		}
-		// Expect exactly 2 records. The broken line should be detected and skipped without failure.
-		if len(*res.records) != 2 {
-			t.Fatalf("expected 2 successful records, got %d", len(*res.records))
+		// Expect exactly 2 Records. The broken line should be detected and skipped without failure.
+		if len(*res.Records) != 2 {
+			t.Fatalf("expected 2 successful Records, got %d", len(*res.Records))
 		}
 	})
 }
