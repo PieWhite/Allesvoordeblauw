@@ -1,4 +1,4 @@
-package scanner
+package JSONScanner
 
 import (
 	"goversion/models"
