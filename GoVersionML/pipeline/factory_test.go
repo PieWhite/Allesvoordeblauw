@@ -83,7 +83,7 @@ func TestRunPipelineForInput(t *testing.T) {
 
 func TestClassifyDirectory(t *testing.T) {
 	tempDir := t.TempDir()
-	mustCreateFile := func(rel string) string {
+	createTestFile := func(rel string) string {
 		full := filepath.Join(tempDir, rel)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatalf("failed to create parent directory: %v", err)
@@ -94,9 +94,9 @@ func TestClassifyDirectory(t *testing.T) {
 		return full
 	}
 
-	jsonFile := mustCreateFile("a.json")
-	ndjsonFile := mustCreateFile("b.ndjson")
-	unsupportedFile := mustCreateFile("nested/c.txt")
+	jsonFile := createTestFile("a.json")
+	ndjsonFile := createTestFile("b.ndjson")
+	unsupportedFile := createTestFile("nested/c.txt")
 
 	got, err := classifyDirectory(tempDir)
 	if err != nil {
@@ -118,7 +118,7 @@ func TestConfirmDirectoryParseMixedFlow(t *testing.T) {
 	originalStdin := os.Stdin
 	t.Cleanup(func() { os.Stdin = originalStdin })
 
-	setStdin := func(t *testing.T, input string) {
+	simulateUserInput := func(t *testing.T, input string) {
 		r, w, err := os.Pipe()
 		if err != nil {
 			t.Fatalf("failed to create stdin pipe: %v", err)
@@ -137,14 +137,14 @@ func TestConfirmDirectoryParseMixedFlow(t *testing.T) {
 	}
 
 	t.Run("AcceptMixedTypes", func(t *testing.T) {
-		setStdin(t, "yes\n")
+		simulateUserInput(t, "yes\n")
 		if err := confirmDirectoryParse(cf); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("RejectMixedTypes", func(t *testing.T) {
-		setStdin(t, "n\n")
+		simulateUserInput(t, "n\n")
 		err := confirmDirectoryParse(cf)
 		if err == nil {
 			t.Fatal("expected cancellation error, got nil")
