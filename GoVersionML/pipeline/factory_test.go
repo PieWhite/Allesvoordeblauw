@@ -3,6 +3,7 @@ package pipeline
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -77,5 +78,93 @@ func TestRunPipelineForInput(t *testing.T) {
 				t.Errorf("expected error containing %q, got %q", tt.wantErr, err.Error())
 			}
 		})
+	}
+}
+
+func TestClassifyDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+	mustCreateFile := func(rel string) string {
+		full := filepath.Join(tempDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("failed to create parent directory: %v", err)
+		}
+		if err := os.WriteFile(full, []byte("{}"), 0o644); err != nil {
+			t.Fatalf("failed to create test file: %v", err)
+		}
+		return full
+	}
+
+	jsonFile := mustCreateFile("a.json")
+	ndjsonFile := mustCreateFile("b.NDJSON")
+	unsupportedFile := mustCreateFile("nested/c.txt")
+
+	got, err := classifyDirectory(tempDir)
+	if err != nil {
+		t.Fatalf("classifyDirectory returned error: %v", err)
+	}
+
+	if len(got.json) != 1 || !slices.Contains(got.json, jsonFile) {
+		t.Fatalf("expected json files to contain %q, got %v", jsonFile, got.json)
+	}
+	if len(got.ndjson) != 1 || !slices.Contains(got.ndjson, ndjsonFile) {
+		t.Fatalf("expected ndjson files to contain %q, got %v", ndjsonFile, got.ndjson)
+	}
+	if len(got.unsupported) != 1 || !slices.Contains(got.unsupported, unsupportedFile) {
+		t.Fatalf("expected unsupported files to contain %q, got %v", unsupportedFile, got.unsupported)
+	}
+}
+
+func TestConfirmDirectoryParseMixedFlow(t *testing.T) {
+	originalStdin := os.Stdin
+	t.Cleanup(func() { os.Stdin = originalStdin })
+
+	setStdin := func(t *testing.T, input string) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("failed to create stdin pipe: %v", err)
+		}
+		if _, err := w.WriteString(input); err != nil {
+			t.Fatalf("failed to write stdin input: %v", err)
+		}
+		w.Close()
+		os.Stdin = r
+		t.Cleanup(func() { r.Close() })
+	}
+
+	cf := classifiedFiles{
+		json:   []string{"a.json"},
+		ndjson: []string{"b.ndjson"},
+	}
+
+	t.Run("AcceptMixedTypes", func(t *testing.T) {
+		setStdin(t, "yes\n")
+		if err := confirmDirectoryParse(cf); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
+
+	t.Run("RejectMixedTypes", func(t *testing.T) {
+		setStdin(t, "n\n")
+		err := confirmDirectoryParse(cf)
+		if err == nil {
+			t.Fatal("expected cancellation error, got nil")
+		}
+		if !strings.Contains(err.Error(), "parsing cancelled by user") {
+			t.Fatalf("expected cancellation error, got %v", err)
+		}
+	})
+}
+
+func TestProcessBatchErrorHandling(t *testing.T) {
+	cf := classifiedFiles{
+		json: []string{"a.json"},
+	}
+
+	_, _, err := processBatch(cf, "missing-model.json", 1)
+	if err == nil {
+		t.Fatal("expected model loading error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed loading xgboost model") {
+		t.Fatalf("expected wrapped model load error, got %v", err)
 	}
 }
