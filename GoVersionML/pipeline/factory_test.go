@@ -118,7 +118,7 @@ func TestConfirmDirectoryParseMixedFlow(t *testing.T) {
 	originalStdin := os.Stdin
 	t.Cleanup(func() { os.Stdin = originalStdin })
 
-	simulateUserInput := func(t *testing.T, input string) {
+	mockStdinWithInput := func(t *testing.T, input string) {
 		r, w, err := os.Pipe()
 		if err != nil {
 			t.Fatalf("failed to create stdin pipe: %v", err)
@@ -137,14 +137,14 @@ func TestConfirmDirectoryParseMixedFlow(t *testing.T) {
 	}
 
 	t.Run("AcceptMixedTypes", func(t *testing.T) {
-		simulateUserInput(t, "yes\n")
+		mockStdinWithInput(t, "yes\n")
 		if err := confirmDirectoryParse(cf); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("RejectMixedTypes", func(t *testing.T) {
-		simulateUserInput(t, "n\n")
+		mockStdinWithInput(t, "n\n")
 		err := confirmDirectoryParse(cf)
 		if err == nil {
 			t.Fatal("expected cancellation error, got nil")
