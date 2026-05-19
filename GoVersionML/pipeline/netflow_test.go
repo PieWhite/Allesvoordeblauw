@@ -165,9 +165,10 @@ func TestProcessFile(t *testing.T) {
 		}
 		tempFile.Close()
 
-		processor := &mockProcessor{total: 2}
+		processor := &mockProcessor{}
 		streamFn := func(r io.Reader, fn func([]models.NetflowRecord)) error {
 			fn([]models.NetflowRecord{{First: "1"}, {First: "2"}})
+			processor.total = int64(len(processor.recordsProcessed))
 			return nil
 		}
 
@@ -180,6 +181,9 @@ func TestProcessFile(t *testing.T) {
 		}
 		if len(processor.recordsProcessed) != 2 {
 			t.Errorf("expected processor to process 2 records, got %d", len(processor.recordsProcessed))
+		}
+		if processor.recordsProcessed[0].First != "1" || processor.recordsProcessed[1].First != "2" {
+			t.Errorf("expected processed records [1,2], got %+v", processor.recordsProcessed)
 		}
 		if processor.TotalCount() != 2 {
 			t.Errorf("expected processor total 2, got %d", processor.TotalCount())
