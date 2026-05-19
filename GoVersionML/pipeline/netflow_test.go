@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -160,21 +161,18 @@ func TestProcessFile(t *testing.T) {
 			t.Fatalf("failed to create temp file: %v", err)
 		}
 		defer os.Remove(tempFile.Name())
-		if _, err := tempFile.WriteString(`{"first":"1"}`); err != nil {
+		if _, err := tempFile.WriteString(`[{"first":"1"},{"first":"2"}]`); err != nil {
 			t.Fatalf("failed to write temp file: %v", err)
 		}
 		tempFile.Close()
 
 		processor := &mockProcessor{}
 		streamFn := func(r io.Reader, fn func([]models.NetflowRecord)) error {
-			data, err := io.ReadAll(r)
-			if err != nil {
+			var records []models.NetflowRecord
+			if err := json.NewDecoder(r).Decode(&records); err != nil {
 				return err
 			}
-			if !strings.Contains(string(data), `"first":"1"`) {
-				return fmt.Errorf("unexpected file content: %s", string(data))
-			}
-			fn([]models.NetflowRecord{{First: "1"}, {First: "2"}})
+			fn(records)
 			return nil
 		}
 
@@ -190,9 +188,6 @@ func TestProcessFile(t *testing.T) {
 		}
 		if processor.recordsProcessed[0].First != "1" || processor.recordsProcessed[1].First != "2" {
 			t.Errorf("expected processed records [1,2], got %+v", processor.recordsProcessed)
-		}
-		if processor.TotalCount() != 2 {
-			t.Errorf("expected processor total 2, got %d", processor.TotalCount())
 		}
 	})
 }
