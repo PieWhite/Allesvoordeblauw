@@ -146,7 +146,7 @@ func TestProcessFile(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		if !errors.Is(err, expectedErr) && err.Error() != fmt.Sprintf("failed to stream netflow data: %v", expectedErr) {
+		if !errors.Is(err, expectedErr) {
 			t.Errorf("expected specific stream error, got %v", err)
 		}
 		if count != 0 {
