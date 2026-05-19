@@ -147,12 +147,19 @@ func (d *Detector) evaluateBatch(statsBatch []*IPStats) {
 	d.probMutex.Unlock()
 }
 
+// Flush retrieves all remaining data from the Aggregator, evaluates it,
+// updates max probabilities, and completely clears the Aggregator memory.
+// Calling runtime.GC() outside this function is recommended for memory management.
+func (d *Detector) Flush() {
+	flushed := d.aggregator.FlushAll()
+	if len(flushed) > 0 {
+		d.evaluateBatch(flushed)
+	}
+}
+
 func (d *Detector) CalculateResults() []models.MLResult {
 	// 1. Flush any remaining data from the Aggregator
-	remaining := d.aggregator.AllIPStats()
-	if len(remaining) > 0 {
-		d.evaluateBatch(remaining)
-	}
+	d.Flush()
 
 	d.probMutex.Lock()
 	defer d.probMutex.Unlock()

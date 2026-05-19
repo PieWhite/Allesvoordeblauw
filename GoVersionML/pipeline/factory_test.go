@@ -1,6 +1,8 @@
 package pipeline
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -8,57 +10,65 @@ import (
 )
 
 func TestRunPipelineForInput(t *testing.T) {
+	tempDir := t.TempDir()
+
 	tests := []struct {
 		name      string
-		inputPath string
+		filename  string
 		wantErr   string
 	}{
 		{
 			name:      "Empty Extension",
-			inputPath: "file_without_ext",
+			filename:  "file_without_ext",
 			wantErr:   "unsupported file extension:",
 		},
 		{
 			name:      "Unsupported Extension",
-			inputPath: "file.txt",
+			filename:  "file.txt",
 			wantErr:   "unsupported file extension: .txt",
 		},
 		{
 			name:      "PCAP Extension",
-			inputPath: "capture.pcap",
+			filename:  "capture.pcap",
 			wantErr:   "pcap pipeline is not yet implemented",
 		},
 		{
 			name:      "JSON Extension with missing model",
-			inputPath: "data.json",
-			// AnalyzeFile will fail because the model doesn't exist
-			wantErr: "failed loading xgboost model",
+			filename:  "data.json",
+			wantErr:   "failed loading xgboost model",
 		},
 		{
 			name:      "NDJSON Extension with missing model",
-			inputPath: "data.ndjson",
+			filename:  "data.ndjson",
 			wantErr:   "failed loading xgboost model",
 		},
 		{
 			name:      "Uppercase PCAP Extension",
-			inputPath: "CAPTURE.PCAP",
+			filename:  "CAPTURE.PCAP",
 			wantErr:   "pcap pipeline is not yet implemented",
 		},
 		{
 			name:      "Uppercase JSON Extension",
-			inputPath: "DATA.JSON",
+			filename:  "DATA.JSON",
 			wantErr:   "failed loading xgboost model",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(tempDir, tt.filename)
+			f, err := os.Create(path)
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			f.Close()
+
 			cfg := &config.AppConfig{
-				InputPath: tt.inputPath,
+				InputPath: path,
 				ModelPath: "nonexistent.json", // to force predictable AnalyzeFile failure
 			}
 
-			_, _, err := RunPipelineForInput(cfg)
+			_, _, err = RunPipelineForInput(cfg)
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
 			}
