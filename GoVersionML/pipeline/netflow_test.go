@@ -23,6 +23,7 @@ func (m *mockProcessor) ProcessRecords(records []models.NetflowRecord) {
 		m.recordsProcessed = make([]models.NetflowRecord, 0)
 	}
 	m.recordsProcessed = append(m.recordsProcessed, records...)
+	m.total += int64(len(records))
 }
 
 func (m *mockProcessor) CalculateResults() []models.MLResult {
@@ -37,7 +38,6 @@ func TestExecute(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		processor := &mockProcessor{
 			results: []models.MLResult{{IP: "1.1.1.1", Probability: 0.9, IsBotnet: true}},
-			total:   1,
 		}
 
 		streamFn := func(r io.Reader, fn func([]models.NetflowRecord)) error {
@@ -168,7 +168,6 @@ func TestProcessFile(t *testing.T) {
 		processor := &mockProcessor{}
 		streamFn := func(r io.Reader, fn func([]models.NetflowRecord)) error {
 			fn([]models.NetflowRecord{{First: "1"}, {First: "2"}})
-			processor.total = int64(len(processor.recordsProcessed))
 			return nil
 		}
 
