@@ -104,7 +104,7 @@ func TestExecute(t *testing.T) {
 func TestProcessFile(t *testing.T) {
 	t.Run("NilStream", func(t *testing.T) {
 		processor := &mockProcessor{}
-		_, err := ProcessFile("dummy.json", processor, nil)
+		_, err := ProcessFile("nonexistent_input.json", processor, nil)
 		if err == nil {
 			t.Fatalf("expected error for nil stream, got nil")
 		}
@@ -180,6 +180,9 @@ func TestProcessFile(t *testing.T) {
 		}
 		if len(processor.recordsProcessed) != 2 {
 			t.Errorf("expected processor to process 2 records, got %d", len(processor.recordsProcessed))
+		}
+		if processor.TotalCount() != 2 {
+			t.Errorf("expected processor total 2, got %d", processor.TotalCount())
 		}
 	})
 }
