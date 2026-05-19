@@ -95,7 +95,7 @@ func TestClassifyDirectory(t *testing.T) {
 	}
 
 	jsonFile := mustCreateFile("a.json")
-	ndjsonFile := mustCreateFile("b.NDJSON")
+	ndjsonFile := mustCreateFile("b.ndjson")
 	unsupportedFile := mustCreateFile("nested/c.txt")
 
 	got, err := classifyDirectory(tempDir)
