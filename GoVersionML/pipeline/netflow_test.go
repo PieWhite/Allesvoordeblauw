@@ -167,6 +167,13 @@ func TestProcessFile(t *testing.T) {
 
 		processor := &mockProcessor{}
 		streamFn := func(r io.Reader, fn func([]models.NetflowRecord)) error {
+			data, err := io.ReadAll(r)
+			if err != nil {
+				return err
+			}
+			if !strings.Contains(string(data), `"first":"1"`) {
+				return fmt.Errorf("unexpected file content: %s", string(data))
+			}
 			fn([]models.NetflowRecord{{First: "1"}, {First: "2"}})
 			return nil
 		}
