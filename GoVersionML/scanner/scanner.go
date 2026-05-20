@@ -1,9 +1,8 @@
-package JSONScanner
+package scanner
 
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -22,7 +21,7 @@ var batchPool = sync.Pool{
 	New: func() interface{} {
 		return &Batch{
 			Lines:  make([][]byte, 0, 1000),
-			Arena:  make([]byte, 2*1024*1024), // 2MB initial arena
+			Arena:  make([]byte, 2*1024*1024),
 			Offset: 0,
 		}
 	},
@@ -33,21 +32,6 @@ var recordsPool = sync.Pool{
 		r := make([]models.NetflowRecord, 0, 1000)
 		return &r
 	},
-}
-
-func isArray(stream io.Reader) (bool, io.Reader, error) {
-	buf := make([]byte, 1)
-	n, err := stream.Read(buf)
-	if err != nil && err != io.EOF {
-		return false, nil, fmt.Errorf("failed to peek buffer: %w", err)
-	}
-	if n == 0 && err == io.EOF {
-		return false, nil, fmt.Errorf("input stream is empty")
-	}
-
-	isArr := buf[0] == '['
-
-	return isArr, io.MultiReader(bytes.NewReader(buf[:n]), stream), nil
 }
 
 // splitJSONObjects is a custom bufio.SplitFunc that tokenises JSON objects
@@ -80,12 +64,15 @@ func splitJSONObjects(data []byte, atEOF bool) (advance int, token []byte, err e
 	return absoluteEnd, token, nil
 }
 
-func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) error {
-	isArr, reader, err := isArray(stream)
-	if err != nil {
-		return err
-	}
+func StreamJSON(stream io.Reader, processFn func([]models.NetflowRecord)) error {
+	return StreamNetflow(stream, processFn, false)
+}
 
+func StreamNDJSON(stream io.Reader, processFn func([]models.NetflowRecord)) error {
+	return StreamNetflow(stream, processFn, true)
+}
+
+func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isNDJSON bool) error {
 	numWorkers := utils.OptimalWorkerCount()
 
 	chunksChan := make(chan *Batch, numWorkers*2)
@@ -97,13 +84,13 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord)) err
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go Worker(chunksChan, resultsChan, &wg, isArr, &hasError)
+		go Worker(chunksChan, resultsChan, &wg, isNDJSON, &hasError)
 	}
 
-	if isArr {
-		go Producer(reader, chunksChan, errChan, splitJSONObjects, &hasError)
+	if isNDJSON {
+		go Producer(stream, chunksChan, errChan, bufio.ScanLines, &hasError)
 	} else {
-		go Producer(reader, chunksChan, errChan, bufio.ScanLines, &hasError)
+		go Producer(stream, chunksChan, errChan, splitJSONObjects, &hasError)
 	}
 
 	go func() {
@@ -194,7 +181,7 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, 
 	errChan <- scanner.Err()
 }
 
-func Worker(chunksChan <-chan *Batch, resultsChan chan<- models.ScanResult, wg *sync.WaitGroup, isArr bool, hasError *atomic.Bool) {
+func Worker(chunksChan <-chan *Batch, resultsChan chan<- models.ScanResult, wg *sync.WaitGroup, isNDJSON bool, hasError *atomic.Bool) {
 	defer wg.Done()
 
 	for batch := range chunksChan {
@@ -219,16 +206,14 @@ func Worker(chunksChan <-chan *Batch, resultsChan chan<- models.ScanResult, wg *
 
 			var record models.NetflowRecord
 			if err := record.UnmarshalJSON(rawBytes); err != nil {
-				if isArr {
-					if firstErr == nil {
-						firstErr = err
-					}
-					hasError.Store(true)
-					break
-				} else {
-					fmt.Printf("Skipping malformed NDJSON line: %v\n", err)
+				if firstErr == nil {
+					firstErr = err
+				}
+				if isNDJSON {
 					continue
 				}
+				hasError.Store(true)
+				break
 			}
 			records = append(records, record)
 		}

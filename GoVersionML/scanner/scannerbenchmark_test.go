@@ -1,4 +1,4 @@
-package JSONScanner
+package scanner
 
 import (
 	"bytes"
@@ -39,7 +39,7 @@ func BenchmarkStreamNetflow(b *testing.B) {
 		reader := bytes.NewReader(mockData)
 
 		// Run the function
-		err := StreamNetflow(reader, func(records []models.NetflowRecord) {
+		err := StreamJSON(reader, func(records []models.NetflowRecord) {
 			// Blackhole the result (do nothing). We just want to measure the parsing overhead.
 		})
 
