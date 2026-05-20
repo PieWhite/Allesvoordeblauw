@@ -52,3 +52,8 @@ GoVersionML/Xgboost/xgboostv5_1.json
 GoVersionML/Xgboost/botnet_xgboost_fixed_v5_2.json
 GoVersionML/Xgboost/botnet_xgboost_fixed_v5_1_040.json
 GoVersionML/Xgboost/botnet_xgboost_fixed_v5.json
+GoVersionML/baseline.txt
+GoVersionML/benchmark.ndjson
+GoVersionML/mermaid.md
+GoVersionML/testo.ndjson
+software_design_document.md
