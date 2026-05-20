@@ -28,7 +28,7 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 			name:        "Valid: defaults used",
 			args:        []string{"input.json"},
 			wantNetflow: "input.json",
-			wantModel:   "./Xgboost/botnet_xgboost.json",
+			wantModel:   "../Xgboost/botnet_xgboost.json",
 			wantOutput:  "",
 			wantErr:     nil,
 		},

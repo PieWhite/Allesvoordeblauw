@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ func (m *mockProcessor) ProcessRecords(records []models.NetflowRecord) {
 		m.recordsProcessed = make([]models.NetflowRecord, 0)
 	}
 	m.recordsProcessed = append(m.recordsProcessed, records...)
+	m.total += int64(len(records))
 }
 
 func (m *mockProcessor) CalculateResults() []models.MLResult {
@@ -37,7 +39,6 @@ func TestExecute(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		processor := &mockProcessor{
 			results: []models.MLResult{{IP: "1.1.1.1", Probability: 0.9, IsBotnet: true}},
-			total:   1,
 		}
 
 		streamFn := func(r io.Reader, fn func([]models.NetflowRecord)) error {
@@ -97,6 +98,96 @@ func TestExecute(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "stream function cannot be nil") {
 			t.Errorf("expected 'stream function cannot be nil' error, got: %v", err)
+		}
+	})
+}
+
+func TestProcessFile(t *testing.T) {
+	t.Run("NilStream", func(t *testing.T) {
+		processor := &mockProcessor{}
+		_, err := ProcessFile("nonexistent_input.json", processor, nil)
+		if err == nil {
+			t.Fatalf("expected error for nil stream, got nil")
+		}
+		if !strings.Contains(err.Error(), "stream function cannot be nil") {
+			t.Errorf("expected 'stream function cannot be nil' error, got: %v", err)
+		}
+	})
+
+	t.Run("OpenFailure", func(t *testing.T) {
+		processor := &mockProcessor{}
+		streamFn := func(r io.Reader, fn func([]models.NetflowRecord)) error {
+			return nil
+		}
+
+		_, err := ProcessFile("nonexistent_input.json", processor, streamFn)
+		if err == nil {
+			t.Fatalf("expected error for missing input file, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to open input file") {
+			t.Errorf("expected file open error, got: %v", err)
+		}
+	})
+
+	t.Run("StreamError", func(t *testing.T) {
+		tempFile, err := os.CreateTemp("", "process_file_stream_error_*.json")
+		if err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+		defer os.Remove(tempFile.Name())
+		tempFile.Close()
+
+		processor := &mockProcessor{}
+		expectedErr := errors.New("mock stream error")
+		streamFn := func(r io.Reader, fn func([]models.NetflowRecord)) error {
+			return expectedErr
+		}
+
+		count, err := ProcessFile(tempFile.Name(), processor, streamFn)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !errors.Is(err, expectedErr) {
+			t.Errorf("expected specific stream error, got %v", err)
+		}
+		if count != 0 {
+			t.Errorf("expected 0 count on error, got %d", count)
+		}
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		tempFile, err := os.CreateTemp("", "process_file_success_*.json")
+		if err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+		defer os.Remove(tempFile.Name())
+		if _, err := tempFile.WriteString(`[{"first":"1"},{"first":"2"}]`); err != nil {
+			t.Fatalf("failed to write temp file: %v", err)
+		}
+		tempFile.Close()
+
+		processor := &mockProcessor{}
+		streamFn := func(r io.Reader, fn func([]models.NetflowRecord)) error {
+			var records []models.NetflowRecord
+			if err := json.NewDecoder(r).Decode(&records); err != nil {
+				return err
+			}
+			fn(records)
+			return nil
+		}
+
+		count, err := ProcessFile(tempFile.Name(), processor, streamFn)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if count != 2 {
+			t.Errorf("expected count 2, got %d", count)
+		}
+		if len(processor.recordsProcessed) != 2 {
+			t.Errorf("expected processor to process 2 records, got %d", len(processor.recordsProcessed))
+		}
+		if processor.recordsProcessed[0].First != "1" || processor.recordsProcessed[1].First != "2" {
+			t.Errorf("expected processed records [1,2], got %+v", processor.recordsProcessed)
 		}
 	})
 }

@@ -147,12 +147,15 @@ func (d *Detector) evaluateBatch(statsBatch []*IPStats) {
 	d.probMutex.Unlock()
 }
 
-func (d *Detector) CalculateResults() []models.MLResult {
-	// 1. Flush any remaining data from the Aggregator
-	remaining := d.aggregator.AllIPStats()
-	if len(remaining) > 0 {
-		d.evaluateBatch(remaining)
+func (d *Detector) Flush() {
+	flushed := d.aggregator.FlushAll()
+	if len(flushed) > 0 {
+		d.evaluateBatch(flushed)
 	}
+}
+
+func (d *Detector) CalculateResults() []models.MLResult {
+	d.Flush()
 
 	d.probMutex.Lock()
 	defer d.probMutex.Unlock()
@@ -172,5 +175,3 @@ func (d *Detector) formatResults(probs map[string]float64) []models.MLResult {
 
 	return results
 }
-
-// Removed predictProbability as it has been replaced by evaluateBatch

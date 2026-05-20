@@ -187,3 +187,19 @@ func (a *Aggregator) ExtractAndFlushBefore(window int64) []*IPStats {
 	}
 	return flushed
 }
+
+// FlushAll removes and returns all IPStats currently in the aggregator, leaving it completely empty.
+func (a *Aggregator) FlushAll() []*IPStats {
+	var flushed []*IPStats
+	for i := 0; i < numShards; i++ {
+		shard := a.shards[i]
+		shard.Lock()
+		for key, stats := range shard.IPs {
+			flushed = append(flushed, stats)
+			delete(shard.IPs, key)
+		}
+		shard.Unlock()
+	}
+	return flushed
+}
+
