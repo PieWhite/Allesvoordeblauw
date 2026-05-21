@@ -8,7 +8,7 @@ import (
 
 func BenchmarkEndToEnd(b *testing.B) {
 	// Find the provided test dataset
-	testFile := "../test_netflow.ndjson"
+	testFile := "../benchmark.ndjson"
 	if _, err := os.Stat(testFile); os.IsNotExist(err) {
 		b.Skipf("Test file %s not found in the current directory, skipping benchmark", testFile)
 	}

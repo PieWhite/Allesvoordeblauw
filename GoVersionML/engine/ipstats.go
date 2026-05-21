@@ -30,13 +30,7 @@ type IPStats struct {
 }
 
 func NewIPStats() *IPStats {
-	return &IPStats{
-		UniqueDstIPs:     make(map[string]struct{}),
-		UniqueDstPorts:   make(map[int]struct{}),
-		OutboundDstPorts: make(map[int]struct{}),
-		InboundDstPorts:  make(map[int]struct{}),
-		TargetStartTimes: make(map[TargetKey][]float64),
-	}
+	return &IPStats{}
 }
 
 // ToMLVector computes the final 21 float64 features expected by XGBoost V2.
