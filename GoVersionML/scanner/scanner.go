@@ -64,6 +64,12 @@ func splitJSONObjects(data []byte, atEOF bool) (advance int, token []byte, err e
 	return absoluteEnd, token, nil
 }
 
+type workerResult struct {
+	records *[]models.NetflowRecord
+	err     error
+	batch   *Batch
+}
+
 func StreamJSON(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 	return StreamNetflow(stream, processFn, false)
 }
@@ -76,7 +82,7 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 	numWorkers := utils.OptimalWorkerCount()
 
 	chunksChan := make(chan *Batch, numWorkers*2)
-	resultsChan := make(chan models.ScanResult, numWorkers*2)
+	resultsChan := make(chan workerResult, numWorkers*2)
 	errChan := make(chan error, 1)
 
 	var wg sync.WaitGroup
@@ -101,18 +107,22 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 	var firstErr error
 
 	for res := range resultsChan {
-		if res.Err != nil && firstErr == nil {
-			firstErr = res.Err
+		if res.err != nil && firstErr == nil {
+			firstErr = res.err
 		}
 
-		if res.Records != nil && len(*res.Records) > 0 {
-			processFn(*res.Records)
+		if res.records != nil && len(*res.records) > 0 {
+			processFn(*res.records)
 		}
 
-		if res.Records != nil {
-			recordsPtr := res.Records
+		if res.records != nil {
+			recordsPtr := res.records
 			*recordsPtr = (*recordsPtr)[:0]
 			recordsPool.Put(recordsPtr)
+		}
+
+		if res.batch != nil {
+			batchPool.Put(res.batch)
 		}
 	}
 
@@ -181,7 +191,7 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, 
 	errChan <- scanner.Err()
 }
 
-func Worker(chunksChan <-chan *Batch, resultsChan chan<- models.ScanResult, wg *sync.WaitGroup, isNDJSON bool, hasError *atomic.Bool) {
+func Worker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sync.WaitGroup, isNDJSON bool, hasError *atomic.Bool) {
 	defer wg.Done()
 
 	for batch := range chunksChan {
@@ -220,11 +230,10 @@ func Worker(chunksChan <-chan *Batch, resultsChan chan<- models.ScanResult, wg *
 
 		if len(records) > 0 || firstErr != nil {
 			*recordsPtr = records
-			resultsChan <- models.ScanResult{Records: recordsPtr, Err: firstErr}
+			resultsChan <- workerResult{records: recordsPtr, err: firstErr, batch: batch}
 		} else {
 			recordsPool.Put(recordsPtr)
+			batchPool.Put(batch)
 		}
-
-		batchPool.Put(batch)
 	}
 }

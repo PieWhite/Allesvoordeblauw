@@ -44,8 +44,9 @@ func (s *Shard) intern(ip string) string {
 	if cached, exists := s.ips[ip]; exists {
 		return cached
 	}
-	s.ips[ip] = ip
-	return ip
+	safeIP := strings.Clone(ip)
+	s.ips[safeIP] = safeIP
+	return safeIP
 }
 
 func (a *Aggregator) getShardIndex(key WindowKey) int {

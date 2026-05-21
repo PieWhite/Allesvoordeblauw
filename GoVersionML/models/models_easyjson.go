@@ -4,6 +4,7 @@ package models
 
 import (
 	json "encoding/json"
+
 	easyjson "github.com/mailru/easyjson"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
@@ -35,13 +36,13 @@ func easyjsonD2b7633eDecodeGoversionModels(in *jlexer.Lexer, out *NetflowRecord)
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.First = string(in.String())
+				out.First = in.UnsafeString()
 			}
 		case "last":
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Last = string(in.String())
+				out.Last = in.UnsafeString()
 			}
 		case "in_packets":
 			if in.IsNull() {
@@ -65,7 +66,7 @@ func easyjsonD2b7633eDecodeGoversionModels(in *jlexer.Lexer, out *NetflowRecord)
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.TCPFlags = string(in.String())
+				out.TCPFlags = in.UnsafeString()
 			}
 		case "src_port":
 			if in.IsNull() {
@@ -83,13 +84,13 @@ func easyjsonD2b7633eDecodeGoversionModels(in *jlexer.Lexer, out *NetflowRecord)
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Src4Addr = string(in.String())
+				out.Src4Addr = in.UnsafeString()
 			}
 		case "dst4_addr":
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Dst4Addr = string(in.String())
+				out.Dst4Addr = in.UnsafeString()
 			}
 		default:
 			in.SkipRecursive()
