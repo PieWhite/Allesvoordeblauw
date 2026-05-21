@@ -21,7 +21,7 @@ var batchPool = sync.Pool{
 	New: func() interface{} {
 		return &Batch{
 			Lines:  make([][]byte, 0, 1000),
-			Arena:  make([]byte, 2*1024*1024),
+			Arena:  make([]byte, 1024*1024),
 			Offset: 0,
 		}
 	},
