@@ -44,6 +44,12 @@ func (s *Shard) intern(ip string) string {
 	if cached, exists := s.ips[ip]; exists {
 		return cached
 	}
+	// Bounded size check to prevent memory leaks in long-running production pipelines.
+	// If the cache grows too large, we reset it. Active strings in shard.IPs will remain
+	// safely allocated and alive, while unused IPs will be naturally garbage-collected.
+	if len(s.ips) > 50000 {
+		s.ips = make(map[string]string)
+	}
 	safeIP := strings.Clone(ip)
 	s.ips[safeIP] = safeIP
 	return safeIP
@@ -236,6 +242,7 @@ func (a *Aggregator) FlushAll() []*IPStats {
 			flushed = append(flushed, stats)
 			delete(shard.IPs, key)
 		}
+		shard.ips = make(map[string]string) // clear intern cache as well
 		shard.Unlock()
 	}
 	return flushed
