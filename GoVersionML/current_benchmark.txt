@@ -1,4 +1,2 @@
-﻿goos: windows
-goarch: amd64
-pkg: goversion/main
-cpu: 11th Gen Intel(R) Core(TM) i5-11300H @ 3.10GHz
+﻿PASS
+ok  	goversion/main	0.427s

@@ -8,11 +8,10 @@ import (
 	"runtime"
 	"strings"
 
-	"goversion/JSONScanner"
-	"goversion/NDJSONScanner"
 	"goversion/config"
 	"goversion/engine"
 	"goversion/models"
+	"goversion/scanner"
 )
 
 // classifiedFiles groups discovered files by their supported type.
@@ -45,16 +44,14 @@ func routeSingleFile(inputPath, modelPath string) ([]models.MLResult, int64, err
 	case ".pcap":
 		return nil, 0, fmt.Errorf("pcap pipeline is not yet implemented")
 	case ".ndjson":
-		return AnalyzeFile(inputPath, modelPath, NDJSONScanner.StreamNetflowV2)
+		return AnalyzeFile(inputPath, modelPath, scanner.StreamNDJSON)
 	case ".json":
-		return AnalyzeFile(inputPath, modelPath, JSONScanner.StreamNetflow)
+		return AnalyzeFile(inputPath, modelPath, scanner.StreamJSON)
 	default:
 		return nil, 0, fmt.Errorf("unsupported file extension: %s", ext)
 	}
 }
 
-// runDirectoryPipeline orchestrates the full directory flow:
-// classify → confirm → batch process.
 func runDirectoryPipeline(dirPath, modelPath string) ([]models.MLResult, int64, error) {
 	classified, err := classifyDirectory(dirPath)
 	if err != nil {
@@ -77,7 +74,6 @@ func runDirectoryPipeline(dirPath, modelPath string) ([]models.MLResult, int64, 
 	return processBatch(classified, modelPath, totalFiles)
 }
 
-// classifyDirectory walks dirPath and groups every file by extension.
 func classifyDirectory(dirPath string) (classifiedFiles, error) {
 	var cf classifiedFiles
 
@@ -156,7 +152,7 @@ func processBatch(cf classifiedFiles, modelPath string, totalFiles int) ([]model
 
 func streamFnFor(path string) StreamFn {
 	if strings.ToLower(filepath.Ext(path)) == ".json" {
-		return JSONScanner.StreamNetflow
+		return scanner.StreamJSON
 	}
-	return NDJSONScanner.StreamNetflowV2
+	return scanner.StreamNDJSON
 }

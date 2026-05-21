@@ -4,7 +4,6 @@ go 1.21
 
 require (
 	github.com/Elvenson/xgboost-go v0.1.4
-	github.com/goccy/go-json v0.10.6
 	github.com/mailru/easyjson v0.9.2
 )
 
