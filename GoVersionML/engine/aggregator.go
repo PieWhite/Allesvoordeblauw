@@ -21,6 +21,7 @@ type WindowKey struct {
 type Shard struct {
 	sync.RWMutex
 	IPs map[WindowKey]*IPStats
+	ips map[string]string // IP intern cache
 }
 
 type Aggregator struct {
@@ -33,9 +34,18 @@ func NewAggregator() *Aggregator {
 	for i := 0; i < numShards; i++ {
 		a.shards[i] = &Shard{
 			IPs: make(map[WindowKey]*IPStats),
+			ips: make(map[string]string),
 		}
 	}
 	return a
+}
+
+func (s *Shard) intern(ip string) string {
+	if cached, exists := s.ips[ip]; exists {
+		return cached
+	}
+	s.ips[ip] = ip
+	return ip
 }
 
 func (a *Aggregator) getShardIndex(key WindowKey) int {
@@ -82,13 +92,18 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 		shard := a.shards[shardIdx]
 
 		shard.Lock()
+		internedSrc := shard.intern(record.Src4Addr)
+		key.IP = internedSrc
+
 		stats, exists := shard.IPs[key]
 		if !exists {
 			stats = NewIPStats()
-			stats.IP = record.Src4Addr
+			stats.IP = internedSrc
 			shard.IPs[key] = stats
 		}
-		a.updateOutboundStats(stats, record, first)
+		
+		internedDst := shard.intern(record.Dst4Addr)
+		a.updateOutboundStats(stats, record, first, internedDst)
 		shard.Unlock()
 	}
 
@@ -98,10 +113,13 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 		shard := a.shards[shardIdx]
 
 		shard.Lock()
+		internedDst := shard.intern(record.Dst4Addr)
+		key.IP = internedDst
+
 		stats, exists := shard.IPs[key]
 		if !exists {
 			stats = NewIPStats()
-			stats.IP = record.Dst4Addr
+			stats.IP = internedDst
 			shard.IPs[key] = stats
 		}
 		updateInboundStats(stats, record)
@@ -123,11 +141,24 @@ func (a *Aggregator) AllIPStats() []*IPStats {
 	return all
 }
 
-func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time) {
+func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time, internedDst string) {
 	stats.FlowCount++
-	stats.UniqueDstIPs[record.Dst4Addr] = struct{}{}
+	
+	if stats.UniqueDstIPs == nil {
+		stats.UniqueDstIPs = make(map[string]struct{})
+	}
+	stats.UniqueDstIPs[internedDst] = struct{}{}
+	
+	if stats.UniqueDstPorts == nil {
+		stats.UniqueDstPorts = make(map[int]struct{})
+	}
 	stats.UniqueDstPorts[record.DstPort] = struct{}{}
+	
+	if stats.OutboundDstPorts == nil {
+		stats.OutboundDstPorts = make(map[int]struct{})
+	}
 	stats.OutboundDstPorts[record.DstPort] = struct{}{}
+	
 	stats.TotalBytes += float64(record.InBytes)
 	stats.TotalPackets += float64(record.InPackets)
 
@@ -151,15 +182,21 @@ func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRe
 		stats.WellKnownPortCount++
 	}
 
-	a.updateTimingMetrics(stats, record, first)
+	a.updateTimingMetrics(stats, record, first, internedDst)
 }
 
 func updateInboundStats(stats *IPStats, record models.NetflowRecord) {
+	if stats.InboundDstPorts == nil {
+		stats.InboundDstPorts = make(map[int]struct{})
+	}
 	stats.InboundDstPorts[record.DstPort] = struct{}{}
 }
 
-func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord, first time.Time) {
-	tKey := TargetKey{IP: record.Dst4Addr, Port: record.DstPort}
+func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord, first time.Time, internedDst string) {
+	tKey := TargetKey{IP: internedDst, Port: record.DstPort}
+	if s.TargetStartTimes == nil {
+		s.TargetStartTimes = make(map[TargetKey][]float64)
+	}
 	s.TargetStartTimes[tKey] = append(s.TargetStartTimes[tKey], float64(first.UnixNano())/1e9)
 
 	if last, ok := a.parseTimestamp(record.Last); ok {
@@ -202,4 +239,3 @@ func (a *Aggregator) FlushAll() []*IPStats {
 	}
 	return flushed
 }
-
