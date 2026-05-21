@@ -8,10 +8,10 @@ import (
 	"runtime"
 	"strings"
 
-	"goversion/scanner"
 	"goversion/config"
 	"goversion/engine"
 	"goversion/models"
+	"goversion/scanner"
 )
 
 // classifiedFiles groups discovered files by their supported type.
@@ -45,10 +45,13 @@ func routeSingleFile(inputPath, modelPath string) ([]models.MLResult, int64, err
 		return nil, 0, fmt.Errorf("pcap pipeline is not yet implemented")
 	case ".ndjson":
 		return AnalyzeFile(inputPath, modelPath, scanner.StreamNDJSON)
+	case ".json":
+		return AnalyzeFile(inputPath, modelPath, scanner.StreamJSON)
+	default:
+		return nil, 0, fmt.Errorf("unsupported file extension: %s", ext)
+	}
 }
 
-// runDirectoryPipeline orchestrates the full directory flow:
-// classify → confirm → batch process.
 func runDirectoryPipeline(dirPath, modelPath string) ([]models.MLResult, int64, error) {
 	classified, err := classifyDirectory(dirPath)
 	if err != nil {
