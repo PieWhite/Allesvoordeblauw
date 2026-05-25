@@ -210,12 +210,15 @@ func (a *Aggregator) ExtractAndFlushBefore(window int64) []*IPStats {
 	for i := 0; i < numShards; i++ {
 		shard := a.shards[i]
 		shard.Lock()
+		activeIPs := make(map[WindowKey]*IPStats)
 		for key, stats := range shard.IPs {
 			if key.Window < window {
 				flushed = append(flushed, stats)
-				delete(shard.IPs, key)
+			} else {
+				activeIPs[key] = stats
 			}
 		}
+		shard.IPs = activeIPs
 		shard.Unlock()
 	}
 	return flushed

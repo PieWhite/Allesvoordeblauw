@@ -78,9 +78,20 @@ func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
 		}
 	}
 
-	// if localMaxWindow > 0 {
-	// 	d.updateMaxWindowAndFlush(localMaxWindow)
-	// }
+	// Update the global maximum window if this batch advanced it
+	curr := d.currentWindow.Load()
+	for localMaxWindow > curr {
+		if d.currentWindow.CompareAndSwap(curr, localMaxWindow) {
+			curr = localMaxWindow
+			break
+		}
+		curr = d.currentWindow.Load()
+	}
+
+	// Unconditionally flush any old windows (including out-of-order zombie windows)
+	if curr > 0 {
+		d.flushOldWindows(curr - 300)
+	}
 }
 
 func (d *Detector) updateMaxWindowAndFlush(win int64) {
