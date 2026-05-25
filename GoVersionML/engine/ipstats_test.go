@@ -8,16 +8,8 @@ import (
 // TestPortSymmetry targets the symmetry++ line.
 func TestPortSymmetry(t *testing.T) {
 	s := NewIPStats()
-	s.OutboundDstPorts = make(map[int]struct{})
-	s.InboundDstPorts = make(map[int]struct{})
-
-	// Outbound ports
-	s.OutboundDstPorts[53] = struct{}{}
-	s.OutboundDstPorts[80] = struct{}{}
-
-	// Inbound ports
-	s.InboundDstPorts[53] = struct{}{}
-	s.InboundDstPorts[443] = struct{}{}
+	s.OutboundDstPorts = []int{53, 80}
+	s.InboundDstPorts = []int{53, 443}
 
 	symmetry := s.calculatePortSymmetry()
 
@@ -29,12 +21,12 @@ func TestPortSymmetry(t *testing.T) {
 // TestIAT_Math_Precision verifies the Python-style variance calculation.
 func TestIAT_Math_Precision(t *testing.T) {
 	s := NewIPStats()
-	s.TargetStartTimes = make(map[TargetKey][]float64)
-	target := TargetKey{IP: "8.8.8.8", Port: 53}
-
-	// Times: 10.0, 12.0.
-	// Diffs: [0, 2.0]
-	s.TargetStartTimes[target] = []float64{10.0, 12.0}
+	s.Window = 0
+	s.UniqueDstIPs = []string{"8.8.8.8"}
+	s.TargetStartTimes = []CompactTime{
+		{IPIdx: 0, Port: 53, Offset: 10.0},
+		{IPIdx: 0, Port: 53, Offset: 12.0},
+	}
 
 	mean, variance, cv := s.calculateIATMetrics()
 

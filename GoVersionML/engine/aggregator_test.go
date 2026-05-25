@@ -83,7 +83,14 @@ func TestAggregator_Update_DataIntegrity(t *testing.T) {
 	if dstStats == nil {
 		t.Fatal("Destination IP stats not found in aggregator")
 	}
-	if _, ok := dstStats.InboundDstPorts[443]; !ok {
+	found := false
+	for _, p := range dstStats.InboundDstPorts {
+		if p == 443 {
+			found = true
+			break
+		}
+	}
+	if !found {
 		t.Error("Destination inbound port 443 was not tracked")
 	}
 }

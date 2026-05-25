@@ -106,6 +106,7 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 		if !exists {
 			stats = NewIPStats()
 			stats.IP = internedSrc
+			stats.Window = key.Window
 			shard.IPs[key] = stats
 		}
 		
@@ -127,6 +128,7 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 		if !exists {
 			stats = NewIPStats()
 			stats.IP = internedDst
+			stats.Window = key.Window
 			shard.IPs[key] = stats
 		}
 		updateInboundStats(stats, record)
@@ -151,20 +153,7 @@ func (a *Aggregator) AllIPStats() []*IPStats {
 func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time, internedDst string) {
 	stats.FlowCount++
 	
-	if stats.UniqueDstIPs == nil {
-		stats.UniqueDstIPs = make(map[string]struct{})
-	}
-	stats.UniqueDstIPs[internedDst] = struct{}{}
-	
-	if stats.UniqueDstPorts == nil {
-		stats.UniqueDstPorts = make(map[int]struct{})
-	}
-	stats.UniqueDstPorts[record.DstPort] = struct{}{}
-	
-	if stats.OutboundDstPorts == nil {
-		stats.OutboundDstPorts = make(map[int]struct{})
-	}
-	stats.OutboundDstPorts[record.DstPort] = struct{}{}
+	stats.AddOutboundDstPort(record.DstPort)
 	
 	stats.TotalBytes += float64(record.InBytes)
 	stats.TotalPackets += float64(record.InPackets)
@@ -193,18 +182,18 @@ func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRe
 }
 
 func updateInboundStats(stats *IPStats, record models.NetflowRecord) {
-	if stats.InboundDstPorts == nil {
-		stats.InboundDstPorts = make(map[int]struct{})
-	}
-	stats.InboundDstPorts[record.DstPort] = struct{}{}
+	stats.AddInboundDstPort(record.DstPort)
 }
 
 func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord, first time.Time, internedDst string) {
-	tKey := TargetKey{IP: internedDst, Port: record.DstPort}
-	if s.TargetStartTimes == nil {
-		s.TargetStartTimes = make(map[TargetKey][]float64)
-	}
-	s.TargetStartTimes[tKey] = append(s.TargetStartTimes[tKey], float64(first.UnixNano())/1e9)
+	ipIdx := s.GetIPIdx(internedDst)
+
+	offset := float32(float64(first.UnixNano())/1e9 - float64(s.Window))
+	s.TargetStartTimes = append(s.TargetStartTimes, CompactTime{
+		IPIdx:  uint16(ipIdx),
+		Port:   uint16(record.DstPort),
+		Offset: offset,
+	})
 
 	if last, ok := a.parseTimestamp(record.Last); ok {
 		duration := last.Sub(first).Seconds()
