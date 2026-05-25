@@ -26,6 +26,8 @@ type Detector struct {
 	maxProbs      map[string]float64
 	probMutex     sync.Mutex
 	currentWindow atomic.Int64
+
+	recordsSinceLastFlush int64
 }
 
 func NewDetector(modelPath string) (*Detector, error) {
@@ -35,9 +37,10 @@ func NewDetector(modelPath string) (*Detector, error) {
 	}
 
 	return &Detector{
-		aggregator: NewAggregator(),
-		model:      loadedModel,
-		maxProbs:   make(map[string]float64),
+		aggregator:            NewAggregator(),
+		model:                 loadedModel,
+		maxProbs:              make(map[string]float64),
+		recordsSinceLastFlush: 0,
 	}, nil
 }
 
@@ -79,18 +82,25 @@ func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
 	}
 
 	// Update the global maximum window if this batch advanced it
+	windowAdvanced := false
 	curr := d.currentWindow.Load()
 	for localMaxWindow > curr {
 		if d.currentWindow.CompareAndSwap(curr, localMaxWindow) {
 			curr = localMaxWindow
+			windowAdvanced = true
 			break
 		}
 		curr = d.currentWindow.Load()
 	}
 
-	// Unconditionally flush any old windows (including out-of-order zombie windows)
-	if curr > 0 {
+	d.recordsSinceLastFlush += int64(len(records))
+
+	// Flush if:
+	// 1. The window strictly advanced (windowAdvanced is true)
+	// 2. OR we processed more than 1,000,000 records since the last flush
+	if curr > 0 && (windowAdvanced || d.recordsSinceLastFlush >= 1000000) {
 		d.flushOldWindows(curr - 300)
+		d.recordsSinceLastFlush = 0 // Reset counter
 	}
 }
 
