@@ -22,6 +22,7 @@ const (
 	stateMenu sessionState = iota
 	stateFileBrowser
 	stateConfirmSelection
+	stateScanning
 	stateResults
 	stateFullLog
 )
@@ -31,6 +32,16 @@ type FileEntry struct {
 	Name  string
 	IsDir bool
 	Size  int64
+}
+
+// Custom Bubble Tea message definitions for concurrent progression
+type progressMsg int64
+
+type scanFinishedMsg struct {
+	results      []models.MLResult
+	totalRecords int64
+	duration     time.Duration
+	err          error
 }
 
 // Model defines the state of our TUI.
@@ -48,6 +59,12 @@ type Model struct {
 	// Scan selection fields
 	scanPath      string
 	confirmedScan bool
+
+	// Background scanning channels
+	progressChan   chan int64
+	finishedChan   chan scanFinishedMsg
+	scanTotalBytes int64
+	scanReadBytes  int64
 
 	// Scan results fields
 	scanResults  []models.MLResult
@@ -129,9 +146,66 @@ func getModelPath() string {
 	return "../Xgboost/botnet_xgboost.json"
 }
 
+// getScanTotalSize calculates the total size of files to scan (supports single file or folders).
+func (m *Model) getScanTotalSize() int64 {
+	info, err := os.Stat(m.scanPath)
+	if err != nil {
+		return 0
+	}
+	if !info.IsDir() {
+		return info.Size()
+	}
+
+	var total int64
+	_ = filepath.WalkDir(m.scanPath, func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext == ".json" || ext == ".ndjson" {
+				if fInfo, fErr := d.Info(); fErr == nil {
+					total += fInfo.Size()
+				}
+			}
+		}
+		return nil
+	})
+	return total
+}
+
+// listenForProgress blocks waiting for progress delta chunks or finished scans.
+func listenForProgress(progressChan chan int64, finishedChan chan scanFinishedMsg) tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case n := <-progressChan:
+			return progressMsg(n)
+		case finish := <-finishedChan:
+			return finish
+		}
+	}
+}
+
 // Update handles message updates in the Bubble Tea loop.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	// Custom thread-safe concurrent message routing
+	case progressMsg:
+		m.scanReadBytes += int64(msg)
+		return m, listenForProgress(m.progressChan, m.finishedChan)
+
+	case scanFinishedMsg:
+		m.scanDuration = msg.duration
+		if msg.err != nil {
+			m.scanError = msg.err
+		} else {
+			// Sort results descending by ML probability
+			sort.SliceStable(msg.results, func(i, j int) bool {
+				return msg.results[i].Probability > msg.results[j].Probability
+			})
+			m.scanResults = msg.results
+			m.totalRecords = msg.totalRecords
+		}
+		m.state = stateResults
+		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -139,6 +213,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "esc":
+			if m.state == stateScanning {
+				// Prevent escaping while active scans run to preserve safety
+				return m, nil
+			}
 			if m.state == stateFullLog {
 				m.state = stateResults
 				m.logScrollRow = 0
@@ -240,29 +318,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "y", "Y":
 				m.confirmedScan = true
+				m.state = stateScanning
+				m.scanTotalBytes = m.getScanTotalSize()
+				m.scanReadBytes = 0
+				m.progressChan = make(chan int64, 100000)
+				m.finishedChan = make(chan scanFinishedMsg, 1)
 
-				// Execute ML scan synchronously and measure elapsed duration
-				start := time.Now()
-				appConfig := &config.AppConfig{
-					ModelPath: getModelPath(),
-					InputPath: m.scanPath,
-				}
-				results, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
-				m.scanDuration = time.Since(start)
+				// Fire background scanning thread asynchronously
+				go func(scanPath string, progressChan chan int64, finishedChan chan scanFinishedMsg) {
+					pipeline.OnProgress = func(delta int64) {
+						progressChan <- delta
+					}
 
-				if err != nil {
-					m.scanError = err
-				} else {
-					// Sort results descending by ML probability
-					sort.SliceStable(results, func(i, j int) bool {
-						return results[i].Probability > results[j].Probability
-					})
-					m.scanResults = results
-					m.totalRecords = totalRecords
-				}
+					start := time.Now()
+					appConfig := &config.AppConfig{
+						ModelPath: getModelPath(),
+						InputPath: scanPath,
+					}
+					results, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
+					duration := time.Since(start)
 
-				m.state = stateResults
-				return m, nil
+					pipeline.OnProgress = nil
+
+					finishedChan <- scanFinishedMsg{
+						results:      results,
+						totalRecords: totalRecords,
+						duration:     duration,
+						err:          err,
+					}
+				}(m.scanPath, m.progressChan, m.finishedChan)
+
+				return m, listenForProgress(m.progressChan, m.finishedChan)
 
 			case "n", "N":
 				m.state = stateFileBrowser
@@ -451,6 +537,43 @@ func (m Model) View() string {
 		sb.WriteString("    " + noStyle.Render("[n] No, cancel") + "\n\n")
 
 		sb.WriteString("  " + hintStyle.Render("Press 'y' to confirm scan, or 'n'/Esc to go back.") + "\n\n")
+
+	} else if m.state == stateScanning {
+		sb.WriteString(bannerStyle.Render(banner) + "\n")
+		sb.WriteString("  " + titleStyle.Render("Pencilgon Scan in Progress...") + "\n\n")
+
+		fileName := filepath.Base(m.scanPath)
+		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Scanning Target: %s", fileName)) + "\n")
+		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Total Scan Size: %s", formatSize(m.scanTotalBytes))) + "\n")
+		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Bytes Processed: %s", formatSize(m.scanReadBytes))) + "\n\n")
+
+		// Compute dynamic percentages
+		pct := 0.0
+		if m.scanTotalBytes > 0 {
+			pct = float64(m.scanReadBytes) / float64(m.scanTotalBytes) * 100.0
+		}
+		if pct > 100.0 {
+			pct = 100.0
+		}
+
+		barLength := 40
+		completed := int(pct / 100.0 * float64(barLength))
+		if completed > barLength {
+			completed = barLength
+		}
+		if completed < 0 {
+			completed = 0
+		}
+		remaining := barLength - completed
+
+		greenStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Bold(true) // Dracula Green
+		grayStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4"))           // Dracula Dark Gray
+
+		bar := "[" + greenStyle.Render(strings.Repeat("█", completed)) + grayStyle.Render(strings.Repeat("░", remaining)) + "]"
+		pctStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6")).Bold(true)
+
+		sb.WriteString(fmt.Sprintf("  Progress: %s  %s\n\n", bar, pctStyle.Render(fmt.Sprintf("%.1f%%", pct))))
+		sb.WriteString("  " + hintStyle.Render("Please wait, Pencilgon is analyzing network records...") + "\n\n")
 
 	} else if m.state == stateResults {
 		sb.WriteString("  " + titleStyle.Render("Pencilgon Scan Results") + "\n\n")

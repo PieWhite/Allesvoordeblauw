@@ -4,8 +4,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"goversion/models"
 )
 
 func TestModel_Init(t *testing.T) {
@@ -324,7 +326,7 @@ func TestModel_ConfirmSelection_Cancel(t *testing.T) {
 func TestModel_ConfirmSelection_Confirm(t *testing.T) {
 	m := NewModel()
 	m.state = stateConfirmSelection
-	m.scanPath = "/test/dir/data.json" // non-existent file, will trigger scanError
+	m.scanPath = "/test/dir/data.json"
 	
 	updatedModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
 	mResult, ok := updatedModel.(Model)
@@ -335,14 +337,61 @@ func TestModel_ConfirmSelection_Confirm(t *testing.T) {
 	if !mResult.confirmedScan {
 		t.Error("expected confirmedScan to be true")
 	}
-	if mResult.state != stateResults {
-		t.Errorf("expected state to be stateResults, got %v", mResult.state)
+	if mResult.state != stateScanning {
+		t.Errorf("expected state to switch to stateScanning, got %v", mResult.state)
 	}
-	if mResult.scanError == nil {
-		t.Error("expected scanError to be set for non-existent file")
+	if cmd == nil {
+		t.Error("expected non-nil progress listener command")
 	}
-	if cmd != nil {
-		t.Error("expected cmd to be nil since we switch to stateResults")
+	if mResult.progressChan == nil || mResult.finishedChan == nil {
+		t.Error("expected channels to be initialized")
+	}
+}
+
+func TestModel_ScanningState_MsgHandlers(t *testing.T) {
+	m := NewModel()
+	m.state = stateScanning
+	m.progressChan = make(chan int64, 10)
+	m.finishedChan = make(chan scanFinishedMsg, 1)
+	m.scanTotalBytes = 1000
+	m.scanReadBytes = 0
+
+	// Handle progressMsg delta
+	updatedModel, cmd := m.Update(progressMsg(150))
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	if mResult.scanReadBytes != 150 {
+		t.Errorf("expected scanReadBytes to accumulate to 150, got %d", mResult.scanReadBytes)
+	}
+	if cmd == nil {
+		t.Error("expected progress listener command to be rescheduled")
+	}
+
+	// Handle scanFinishedMsg completion
+	finishMsg := scanFinishedMsg{
+		results:      []models.MLResult{{IP: "1.2.3.4", Probability: 0.99}},
+		totalRecords: 1,
+		duration:     time.Millisecond * 10,
+		err:          nil,
+	}
+	updatedModel2, cmd2 := mResult.Update(finishMsg)
+	mResult2, ok := updatedModel2.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	if mResult2.state != stateResults {
+		t.Errorf("expected state to switch to stateResults, got %v", mResult2.state)
+	}
+	if len(mResult2.scanResults) != 1 || mResult2.scanResults[0].IP != "1.2.3.4" {
+		t.Error("expected scanResults to be populated")
+	}
+	if mResult2.totalRecords != 1 {
+		t.Errorf("expected totalRecords to be 1, got %d", mResult2.totalRecords)
+	}
+	if cmd2 != nil {
+		t.Error("expected nil command after finishing scan")
 	}
 }
 
