@@ -6,12 +6,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"goversion/config"
 	"goversion/models"
 	"goversion/pipeline"
+	"goversion/reporter"
 )
 
 type sessionState int
@@ -21,6 +23,7 @@ const (
 	stateFileBrowser
 	stateConfirmSelection
 	stateResults
+	stateFullLog
 )
 
 // FileEntry represents a file or directory item.
@@ -50,7 +53,11 @@ type Model struct {
 	scanResults  []models.MLResult
 	totalRecords int64
 	scanError    error
-	showFullLog  bool
+	scanDuration time.Duration
+
+	// Full Log scroll fields
+	fullLogText  string
+	logScrollRow int
 }
 
 // NewModel initializes the TUI model.
@@ -132,13 +139,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "esc":
+			if m.state == stateFullLog {
+				m.state = stateResults
+				m.logScrollRow = 0
+				return m, nil
+			}
 			if m.state == stateResults {
 				m.state = stateFileBrowser
 				m.scanPath = ""
 				m.scanResults = nil
 				m.totalRecords = 0
 				m.scanError = nil
-				m.showFullLog = false
 				return m, nil
 			}
 			if m.state == stateConfirmSelection {
@@ -230,12 +241,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y", "Y":
 				m.confirmedScan = true
 
-				// Execute ML scan synchronously
+				// Execute ML scan synchronously and measure elapsed duration
+				start := time.Now()
 				appConfig := &config.AppConfig{
 					ModelPath: getModelPath(),
 					InputPath: m.scanPath,
 				}
 				results, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
+				m.scanDuration = time.Since(start)
+
 				if err != nil {
 					m.scanError = err
 				} else {
@@ -258,9 +272,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "x", "X":
 				if m.scanError == nil {
-					m.showFullLog = true
-					m.quitting = true
-					return m, tea.Quit
+					// Format scan report using reporter logic to string builder
+					var logBuilder strings.Builder
+					reporter.PrintSummary(&logBuilder, m.scanResults, m.totalRecords, m.scanDuration)
+					m.fullLogText = logBuilder.String()
+					m.logScrollRow = 0
+					m.state = stateFullLog
+				}
+			}
+		} else if m.state == stateFullLog {
+			lines := strings.Split(m.fullLogText, "\n")
+			maxLinesToShow := 18
+			maxScroll := len(lines) - maxLinesToShow
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+
+			switch msg.String() {
+			case "up", "k":
+				if m.logScrollRow > 0 {
+					m.logScrollRow--
+				}
+			case "down", "j":
+				if m.logScrollRow < maxScroll {
+					m.logScrollRow++
+				}
+			case "pgup", "ctrl+u":
+				m.logScrollRow -= 10
+				if m.logScrollRow < 0 {
+					m.logScrollRow = 0
+				}
+			case "pgdown", "ctrl+d", " ":
+				m.logScrollRow += 10
+				if m.logScrollRow > maxScroll {
+					m.logScrollRow = maxScroll
 				}
 			}
 		}
@@ -460,11 +505,52 @@ func (m Model) View() string {
 		// Dedicated action footer with bright green text
 		if m.scanError == nil {
 			actionHintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Italic(true).Bold(true)
-			sb.WriteString("  " + actionHintStyle.Render("Press 'x' to see full log in terminal") + "\n")
+			sb.WriteString("  " + actionHintStyle.Render("Press 'x' to see full scrollable log inside TUI") + "\n")
 		}
 
 		// Standard navigation footer
 		sb.WriteString("  " + hintStyle.Render("Press Esc to return to directory explorer • 'q' to exit") + "\n\n")
+
+	} else if m.state == stateFullLog {
+		sb.WriteString("  " + titleStyle.Render("Pencilgon Full Scan Log") + "\n\n")
+
+		lines := strings.Split(m.fullLogText, "\n")
+		maxLinesToShow := 18
+
+		// Bounds check
+		maxScroll := len(lines) - maxLinesToShow
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if m.logScrollRow > maxScroll {
+			m.logScrollRow = maxScroll
+		}
+		if m.logScrollRow < 0 {
+			m.logScrollRow = 0
+		}
+
+		endIndex := m.logScrollRow + maxLinesToShow
+		if endIndex > len(lines) {
+			endIndex = len(lines)
+		}
+
+		// Render scrollable log lines
+		logLineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F8F8F2"))
+		for i := m.logScrollRow; i < endIndex; i++ {
+			sb.WriteString("  " + logLineStyle.Render(lines[i]) + "\n")
+		}
+
+		// Scroll indicator bar with green accent
+		scrollPct := 0.0
+		if len(lines) > maxLinesToShow {
+			scrollPct = float64(m.logScrollRow) / float64(len(lines)-maxLinesToShow) * 100.0
+		}
+
+		scrollBarColor := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Bold(true)
+		sb.WriteString("\n  " + scrollBarColor.Render(fmt.Sprintf("[Line %d-%d of %d (%.0f%%)]", m.logScrollRow+1, endIndex, len(lines), scrollPct)) + "\n")
+
+		// Standard navigation footer
+		sb.WriteString("  " + hintStyle.Render("Use ↑/↓ or j/k to scroll • Space/PageDown to scroll faster • Esc to return to summary") + "\n\n")
 	}
 
 	// Render within an elegant border
@@ -491,19 +577,19 @@ func formatSize(b int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-// Start launches the Bubble Tea program and returns the confirmed path to scan and whether to show the full log.
-func Start() (string, bool, error) {
+// Start launches the Bubble Tea program and returns the confirmed path to scan.
+func Start() (string, error) {
 	m := NewModel()
 	p := tea.NewProgram(m)
 	finalModel, err := p.Run()
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
 
 	if tuiModel, ok := finalModel.(Model); ok {
 		if tuiModel.confirmedScan {
-			return tuiModel.scanPath, tuiModel.showFullLog, nil
+			return tuiModel.scanPath, nil
 		}
 	}
-	return "", false, nil
+	return "", nil
 }

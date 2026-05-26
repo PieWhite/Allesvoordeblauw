@@ -397,7 +397,7 @@ func TestModel_FileBrowser_PressX_OnParentDirIgnored(t *testing.T) {
 	}
 }
 
-func TestModel_ResultsState_PressX_Exits(t *testing.T) {
+func TestModel_ResultsState_PressX_TransitionsToFullLog(t *testing.T) {
 	m := NewModel()
 	m.state = stateResults
 	m.scanPath = "/test/dir/data.json"
@@ -410,36 +410,60 @@ func TestModel_ResultsState_PressX_Exits(t *testing.T) {
 		t.Fatalf("expected model to be of type Model")
 	}
 	
-	if !mResult.quitting {
-		t.Error("expected quitting to be true")
+	if mResult.state != stateFullLog {
+		t.Errorf("expected state to switch to stateFullLog, got %v", mResult.state)
 	}
-	if !mResult.showFullLog {
-		t.Error("expected showFullLog to be true")
+	if mResult.fullLogText == "" {
+		t.Error("expected fullLogText to be populated")
 	}
-	if cmd == nil {
-		t.Error("expected non-nil quit command")
+	if cmd != nil {
+		t.Error("expected cmd to be nil since we transition states")
 	}
 }
 
-func TestModel_ResultsState_EscGoesBack(t *testing.T) {
+func TestModel_FullLog_Scrolling(t *testing.T) {
 	m := NewModel()
-	m.state = stateResults
-	m.scanPath = "/test/dir/data.json"
-	m.confirmedScan = true
+	m.state = stateFullLog
+	m.fullLogText = "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22"
+	m.logScrollRow = 0
 	
-	updatedModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	// Scroll down
+	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	mResult, ok := updatedModel.(Model)
 	if !ok {
 		t.Fatalf("expected model to be of type Model")
 	}
-	
-	if mResult.state != stateFileBrowser {
-		t.Errorf("expected state to return to stateFileBrowser, got %v", mResult.state)
+	if mResult.logScrollRow != 1 {
+		t.Errorf("expected logScrollRow to be 1 after Down key, got %d", mResult.logScrollRow)
 	}
-	if mResult.scanPath != "" {
-		t.Error("expected scanPath to be cleared")
+
+	// Scroll down faster with Spacebar
+	updatedModel2, _ := mResult.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	mResult2, ok := updatedModel2.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
 	}
-	if cmd != nil {
-		t.Error("expected cmd to be nil")
+	if mResult2.logScrollRow != 4 { // maxScroll is len(lines) - 18 = 22 - 18 = 4. Clamps at 4.
+		t.Errorf("expected logScrollRow to clamp at maxScroll 4, got %d", mResult2.logScrollRow)
+	}
+
+	// Scroll up
+	updatedModel3, _ := mResult2.Update(tea.KeyMsg{Type: tea.KeyUp})
+	mResult3, ok := updatedModel3.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	if mResult3.logScrollRow != 3 {
+		t.Errorf("expected logScrollRow to be 3 after Up key, got %d", mResult3.logScrollRow)
+	}
+
+	// Esc returns to stateResults
+	updatedModel4, _ := mResult3.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	mResult4, ok := updatedModel4.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	if mResult4.state != stateResults {
+		t.Errorf("expected state to return to stateResults, got %v", mResult4.state)
 	}
 }

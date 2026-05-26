@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"os"
 )
 
 // AppConfig holds the configuration state for the application.
@@ -28,6 +29,17 @@ func (c *AppConfig) ParseArgs(args []string) error {
 
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	// Resilient model path fallback for CLI/standard scanner run
+	// Only fallback if the default path is selected and does not exist in the filesystem
+	if c.ModelPath == "../Xgboost/botnet_xgboost.json" {
+		if _, err := os.Stat(c.ModelPath); os.IsNotExist(err) {
+			p2 := "./Xgboost/botnet_xgboost.json"
+			if _, err := os.Stat(p2); err == nil {
+				c.ModelPath = p2
+			}
+		}
 	}
 
 	if fs.NArg() == 0 {
