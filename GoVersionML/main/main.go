@@ -17,9 +17,16 @@ import (
 
 func main() {
 	if len(os.Args) == 1 {
-		if err := tui.Start(); err != nil {
+		selectedFile, err := tui.Start()
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 			os.Exit(1)
+		}
+		if selectedFile != "" {
+			if err := run([]string{selectedFile}); err != nil {
+				fmt.Fprintf(os.Stderr, "Fatal error: %v\n", err)
+				os.Exit(1)
+			}
 		}
 		os.Exit(0)
 	}

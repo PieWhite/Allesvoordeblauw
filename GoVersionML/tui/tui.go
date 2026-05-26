@@ -15,6 +15,7 @@ type sessionState int
 const (
 	stateMenu sessionState = iota
 	stateFileBrowser
+	stateConfirmSelection
 )
 
 // FileEntry represents a file or directory item.
@@ -35,6 +36,10 @@ type Model struct {
 	currentDir string
 	entries    []FileEntry
 	fileCursor int
+
+	// Scan selection fields
+	scanPath      string
+	confirmedScan bool
 }
 
 // NewModel initializes the TUI model.
@@ -100,6 +105,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "esc":
+			if m.state == stateConfirmSelection {
+				m.state = stateFileBrowser
+				m.scanPath = ""
+				return m, nil
+			}
 			if m.state == stateFileBrowser {
 				m.state = stateMenu
 				return m, nil
@@ -147,6 +157,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if parent != m.currentDir {
 					_ = m.loadDirectory(parent)
 				}
+			case "x", "X":
+				if m.selectedOption == 0 && len(m.entries) > 0 && m.fileCursor < len(m.entries) {
+					entry := m.entries[m.fileCursor]
+					if !entry.IsDir {
+						ext := strings.ToLower(filepath.Ext(entry.Name))
+						if ext == ".json" || ext == ".ndjson" {
+							m.scanPath = filepath.Join(m.currentDir, entry.Name)
+							m.state = stateConfirmSelection
+						}
+					}
+				}
 			case "enter":
 				if len(m.entries) > 0 && m.fileCursor < len(m.entries) {
 					entry := m.entries[m.fileCursor]
@@ -160,6 +181,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						_ = m.loadDirectory(targetPath)
 					}
 				}
+			}
+		} else if m.state == stateConfirmSelection {
+			switch msg.String() {
+			case "y", "Y":
+				m.confirmedScan = true
+				return m, tea.Quit
+			case "n", "N":
+				m.state = stateFileBrowser
+				m.scanPath = ""
 			}
 		}
 	}
@@ -239,9 +269,14 @@ func (m Model) View() string {
 			sb.WriteString("    (Empty Directory)\n")
 		} else {
 			for i, entry := range m.entries {
-				icon := "📄"
-				if entry.IsDir {
-					icon = "📁"
+				icon := "📁"
+				if !entry.IsDir {
+					ext := strings.ToLower(filepath.Ext(entry.Name))
+					if ext == ".json" || ext == ".ndjson" {
+						icon = "📊" // Distinct icon for json/ndjson files
+					} else {
+						icon = "📄"
+					}
 				}
 
 				var nameStr string
@@ -256,7 +291,20 @@ func (m Model) View() string {
 					sizeStr = " (" + formatSize(entry.Size) + ")"
 				}
 
+				// If it's a valid json/ndjson file, remind that they can press 'x'
+				actionHint := ""
+				if m.selectedOption == 0 && !entry.IsDir {
+					ext := strings.ToLower(filepath.Ext(entry.Name))
+					if ext == ".json" || ext == ".ndjson" {
+						actionHint = " [Press 'x' to Select]"
+					}
+				}
+
 				lineContent := icon + " " + nameStr + sizeStr
+				if actionHint != "" {
+					lineContent += lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Italic(true).Render(actionHint)
+				}
+
 				if m.fileCursor == i {
 					sb.WriteString(selectedLineStyle.Render("  > "+lineContent) + "\n")
 				} else {
@@ -266,6 +314,22 @@ func (m Model) View() string {
 		}
 
 		sb.WriteString("\n  " + hintStyle.Render("Use ↑/↓ or j/k to navigate • Enter to open folder • Backspace to go up • Esc to return") + "\n\n")
+
+	} else if m.state == stateConfirmSelection {
+		sb.WriteString("  " + titleStyle.Render("Confirm Scan Action") + "\n\n")
+
+		fileName := filepath.Base(m.scanPath)
+		promptText := fmt.Sprintf("Proceed with %s?", fileName)
+		sb.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true).Render(promptText) + "\n\n")
+
+		// Stylized choices
+		yesStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Bold(true)
+		noStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true)
+
+		sb.WriteString("    " + yesStyle.Render("[y] Yes, start scanning") + "\n")
+		sb.WriteString("    " + noStyle.Render("[n] No, cancel") + "\n\n")
+
+		sb.WriteString("  " + hintStyle.Render("Press 'y' to confirm scan, or 'n'/Esc to go back.") + "\n\n")
 	}
 
 	// Render within an elegant border
@@ -292,9 +356,19 @@ func formatSize(b int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-// Start launches the Bubble Tea program.
-func Start() error {
-	p := tea.NewProgram(NewModel())
-	_, err := p.Run()
-	return err
+// Start launches the Bubble Tea program and returns the confirmed path to scan if selected.
+func Start() (string, error) {
+	m := NewModel()
+	p := tea.NewProgram(m)
+	finalModel, err := p.Run()
+	if err != nil {
+		return "", err
+	}
+
+	if tuiModel, ok := finalModel.(Model); ok {
+		if tuiModel.confirmedScan {
+			return tuiModel.scanPath, nil
+		}
+	}
+	return "", nil
 }

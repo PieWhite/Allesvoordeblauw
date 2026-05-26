@@ -250,3 +250,92 @@ func TestFormatSize(t *testing.T) {
 		}
 	}
 }
+
+func TestModel_FileBrowser_PressX_OnNonJson(t *testing.T) {
+	m := NewModel()
+	m.state = stateFileBrowser
+	m.selectedOption = 0
+	
+	// Create a dummy file with non-json ext
+	m.entries = []FileEntry{
+		{Name: "data.txt", IsDir: false, Size: 100},
+	}
+	m.fileCursor = 0
+	
+	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	
+	if mResult.state != stateFileBrowser {
+		t.Errorf("expected state to remain stateFileBrowser, got %v", mResult.state)
+	}
+	if mResult.scanPath != "" {
+		t.Error("expected scanPath to be empty")
+	}
+}
+
+func TestModel_FileBrowser_PressX_OnJson(t *testing.T) {
+	m := NewModel()
+	m.state = stateFileBrowser
+	m.selectedOption = 0
+	m.currentDir = "/test/dir"
+	
+	m.entries = []FileEntry{
+		{Name: "data.json", IsDir: false, Size: 100},
+	}
+	m.fileCursor = 0
+	
+	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	
+	if mResult.state != stateConfirmSelection {
+		t.Errorf("expected state to switch to stateConfirmSelection, got %v", mResult.state)
+	}
+	expectedPath := filepath.Join("/test/dir", "data.json")
+	if mResult.scanPath != expectedPath {
+		t.Errorf("expected scanPath to be %s, got %s", expectedPath, mResult.scanPath)
+	}
+}
+
+func TestModel_ConfirmSelection_Cancel(t *testing.T) {
+	m := NewModel()
+	m.state = stateConfirmSelection
+	m.scanPath = "/test/dir/data.json"
+	
+	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	
+	if mResult.state != stateFileBrowser {
+		t.Errorf("expected state to return to stateFileBrowser, got %v", mResult.state)
+	}
+	if mResult.scanPath != "" {
+		t.Error("expected scanPath to be cleared")
+	}
+}
+
+func TestModel_ConfirmSelection_Confirm(t *testing.T) {
+	m := NewModel()
+	m.state = stateConfirmSelection
+	m.scanPath = "/test/dir/data.json"
+	
+	updatedModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	
+	if !mResult.confirmedScan {
+		t.Error("expected confirmedScan to be true")
+	}
+	if cmd == nil {
+		t.Error("expected non-nil quit command")
+	}
+}
