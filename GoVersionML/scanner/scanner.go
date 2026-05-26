@@ -143,16 +143,31 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 		}
 	}
 
-	// Clean up any remaining buffered items in case of early exit/errors
-	for _, pending := range pendingResults {
-		if pending.records != nil {
-			recordsPtr := pending.records
-			*recordsPtr = (*recordsPtr)[:0]
-			recordsPool.Put(recordsPtr)
+	// Drain pendingResults in order at shutdown, treating missing sequence numbers as empty batches
+	for len(pendingResults) > 0 {
+		nextRes, found := pendingResults[expectedSeq]
+		if found {
+			delete(pendingResults, expectedSeq)
+
+			if nextRes.err != nil && firstErr == nil {
+				firstErr = nextRes.err
+			}
+
+			if nextRes.records != nil && len(*nextRes.records) > 0 {
+				processFn(*nextRes.records)
+			}
+
+			if nextRes.records != nil {
+				recordsPtr := nextRes.records
+				*recordsPtr = (*recordsPtr)[:0]
+				recordsPool.Put(recordsPtr)
+			}
+
+			if nextRes.batch != nil {
+				batchPool.Put(nextRes.batch)
+			}
 		}
-		if pending.batch != nil {
-			batchPool.Put(pending.batch)
-		}
+		expectedSeq++
 	}
 
 	if readerErr := <-errChan; readerErr != nil && firstErr == nil {

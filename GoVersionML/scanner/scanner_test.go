@@ -405,3 +405,45 @@ func TestStreamNetflow_SequentialOrder(t *testing.T) {
 		t.Fatalf("Expected to have processed up to batch %d, but finished at %d", numBatches-1, lastBatchID)
 	}
 }
+
+func TestStreamNetflow_MissingSequenceNoise(t *testing.T) {
+	// 1000 valid records (Sequence 0)
+	// 1000 noise lines (Sequence 1) which are trimmed to empty by worker
+	// 1000 valid records (Sequence 2)
+	const batchSize = 1000
+	var builder strings.Builder
+
+	validRecord := `{"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}`
+	
+	// Batch 0
+	for i := 0; i < batchSize; i++ {
+		builder.WriteString(validRecord)
+		builder.WriteByte('\n')
+	}
+	// Batch 1 (Noise)
+	for i := 0; i < batchSize; i++ {
+		builder.WriteString(",   \n")
+	}
+	// Batch 2
+	for i := 0; i < batchSize; i++ {
+		builder.WriteString(validRecord)
+		builder.WriteByte('\n')
+	}
+
+	reader := strings.NewReader(builder.String())
+
+	var totalProcessed int32
+	err := StreamNDJSON(reader, func(records []models.NetflowRecord) {
+		atomic.AddInt32(&totalProcessed, int32(len(records)))
+	})
+
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// We expect exactly 2000 valid records to be processed (from batch 0 and batch 2)
+	if totalProcessed != 2*batchSize {
+		t.Fatalf("Expected %d records processed, but got %d (data was dropped!)", 2*batchSize, totalProcessed)
+	}
+}
+
