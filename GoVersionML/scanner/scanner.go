@@ -12,17 +12,19 @@ import (
 )
 
 type Batch struct {
-	Lines  [][]byte
-	Arena  []byte
-	Offset int
+	Lines    [][]byte
+	Arena    []byte
+	Offset   int
+	Sequence int
 }
 
 var batchPool = sync.Pool{
 	New: func() interface{} {
 		return &Batch{
-			Lines:  make([][]byte, 0, 1000),
-			Arena:  make([]byte, 1024*1024),
-			Offset: 0,
+			Lines:    make([][]byte, 0, 1000),
+			Arena:    make([]byte, 1024*1024),
+			Offset:   0,
+			Sequence: 0,
 		}
 	},
 }
@@ -105,25 +107,67 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 	}()
 
 	var firstErr error
+	expectedSeq := 0
+	pendingResults := make(map[int]workerResult)
 
 	for res := range resultsChan {
-		if res.err != nil && firstErr == nil {
-			firstErr = res.err
-		}
-
-		if res.records != nil && len(*res.records) > 0 {
-			processFn(*res.records)
-		}
-
-		if res.records != nil {
-			recordsPtr := res.records
-			*recordsPtr = (*recordsPtr)[:0]
-			recordsPool.Put(recordsPtr)
-		}
-
 		if res.batch != nil {
-			batchPool.Put(res.batch)
+			pendingResults[res.batch.Sequence] = res
 		}
+
+		for {
+			nextRes, found := pendingResults[expectedSeq]
+			if !found {
+				break
+			}
+			delete(pendingResults, expectedSeq)
+
+			if nextRes.err != nil && firstErr == nil {
+				firstErr = nextRes.err
+			}
+
+			if nextRes.records != nil && len(*nextRes.records) > 0 {
+				processFn(*nextRes.records)
+			}
+
+			if nextRes.records != nil {
+				recordsPtr := nextRes.records
+				*recordsPtr = (*recordsPtr)[:0]
+				recordsPool.Put(recordsPtr)
+			}
+
+			if nextRes.batch != nil {
+				batchPool.Put(nextRes.batch)
+			}
+			expectedSeq++
+		}
+	}
+
+	// Drain pendingResults in order at shutdown, treating missing sequence numbers as empty batches
+	for len(pendingResults) > 0 {
+		nextRes, found := pendingResults[expectedSeq]
+		if found {
+			delete(pendingResults, expectedSeq)
+
+			if nextRes.err != nil && firstErr == nil {
+				firstErr = nextRes.err
+			}
+
+			if nextRes.records != nil && len(*nextRes.records) > 0 {
+				processFn(*nextRes.records)
+			}
+
+			if nextRes.records != nil {
+				recordsPtr := nextRes.records
+				*recordsPtr = (*recordsPtr)[:0]
+				recordsPool.Put(recordsPtr)
+			}
+
+			if nextRes.batch != nil {
+				batchPool.Put(nextRes.batch)
+			}
+		}
+		expectedSeq++
 	}
 
 	if readerErr := <-errChan; readerErr != nil && firstErr == nil {
@@ -147,6 +191,9 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, 
 	batch := batchPool.Get().(*Batch)
 	batch.Lines = batch.Lines[:0]
 	batch.Offset = 0
+	batch.Sequence = 0
+
+	var seq int
 
 	for scanner.Scan() {
 		if hasError.Load() {
@@ -176,6 +223,8 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, 
 		batch.Offset += n
 
 		if len(batch.Lines) >= batchSize {
+			batch.Sequence = seq
+			seq++
 			chunksChan <- batch
 
 			batch = batchPool.Get().(*Batch)
@@ -185,7 +234,11 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, 
 	}
 
 	if len(batch.Lines) > 0 && !hasError.Load() {
+		batch.Sequence = seq
+		seq++
 		chunksChan <- batch
+	} else {
+		batchPool.Put(batch)
 	}
 
 	errChan <- scanner.Err()

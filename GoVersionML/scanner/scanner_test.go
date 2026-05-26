@@ -357,3 +357,93 @@ func TestStreamNetflow_EmptyAndNoiseInputs(t *testing.T) {
 		t.Fatalf("Expected no error for empty/noise JSON array, got: %v", err)
 	}
 }
+
+func TestStreamNetflow_SequentialOrder(t *testing.T) {
+	// Generate 5000 records so we get multiple batches (since batchSize is 1000)
+	// Each batch of 1000 will be tagged with different packet numbers.
+	// Because of sequential ordering, batch 0 (packets 0) must be processed first,
+	// batch 1 (packets 1) second, etc., even under concurrency.
+	const numBatches = 5
+	const batchSize = 1000
+	var builder strings.Builder
+	builder.WriteString("[\n")
+	for b := 0; b < numBatches; b++ {
+		for i := 0; i < batchSize; i++ {
+			builder.WriteString(fmt.Sprintf(`{"first":"1","last":"2","in_packets":%d,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}`, b))
+			if b < numBatches-1 || i < batchSize-1 {
+				builder.WriteString(",\n")
+			}
+		}
+	}
+	builder.WriteString("\n]")
+
+	reader := strings.NewReader(builder.String())
+
+	var lastBatchID int64 = -1
+	err := StreamJSON(reader, func(records []models.NetflowRecord) {
+		if len(records) > 0 {
+			currentBatchID := records[0].InPackets
+			// Verify that the batch ID is strictly sequential and monotonic
+			if currentBatchID != lastBatchID+1 {
+				t.Errorf("Expected batch ID %d, but got %d (out of order!)", lastBatchID+1, currentBatchID)
+			}
+			// Verify that all records in the batch have the same batch ID
+			for _, r := range records {
+				if r.InPackets != currentBatchID {
+					t.Errorf("Expected record in_packets to be %d, got %d", currentBatchID, r.InPackets)
+				}
+			}
+			lastBatchID = currentBatchID
+		}
+	})
+
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if lastBatchID != numBatches-1 {
+		t.Fatalf("Expected to have processed up to batch %d, but finished at %d", numBatches-1, lastBatchID)
+	}
+}
+
+func TestStreamNetflow_MissingSequenceNoise(t *testing.T) {
+	// 1000 valid records (Sequence 0)
+	// 1000 noise lines (Sequence 1) which are trimmed to empty by worker
+	// 1000 valid records (Sequence 2)
+	const batchSize = 1000
+	var builder strings.Builder
+
+	validRecord := `{"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}`
+	
+	// Batch 0
+	for i := 0; i < batchSize; i++ {
+		builder.WriteString(validRecord)
+		builder.WriteByte('\n')
+	}
+	// Batch 1 (Noise)
+	for i := 0; i < batchSize; i++ {
+		builder.WriteString(",   \n")
+	}
+	// Batch 2
+	for i := 0; i < batchSize; i++ {
+		builder.WriteString(validRecord)
+		builder.WriteByte('\n')
+	}
+
+	reader := strings.NewReader(builder.String())
+
+	var totalProcessed int32
+	err := StreamNDJSON(reader, func(records []models.NetflowRecord) {
+		atomic.AddInt32(&totalProcessed, int32(len(records)))
+	})
+
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// We expect exactly 2000 valid records to be processed (from batch 0 and batch 2)
+	if totalProcessed != 2*batchSize {
+		t.Fatalf("Expected %d records processed, but got %d (data was dropped!)", 2*batchSize, totalProcessed)
+	}
+}
+
