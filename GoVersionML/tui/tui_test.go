@@ -339,3 +339,54 @@ func TestModel_ConfirmSelection_Confirm(t *testing.T) {
 		t.Error("expected non-nil quit command")
 	}
 }
+
+func TestModel_FileBrowser_PressX_OnDirInFolderMode(t *testing.T) {
+	m := NewModel()
+	m.state = stateFileBrowser
+	m.selectedOption = 1 // Folder detection
+	m.currentDir = "/test/dir"
+	
+	m.entries = []FileEntry{
+		{Name: "subfolder", IsDir: true},
+	}
+	m.fileCursor = 0
+	
+	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	
+	if mResult.state != stateConfirmSelection {
+		t.Errorf("expected state to switch to stateConfirmSelection, got %v", mResult.state)
+	}
+	expectedPath := filepath.Join("/test/dir", "subfolder")
+	if mResult.scanPath != expectedPath {
+		t.Errorf("expected scanPath to be %s, got %s", expectedPath, mResult.scanPath)
+	}
+}
+
+func TestModel_FileBrowser_PressX_OnParentDirIgnored(t *testing.T) {
+	m := NewModel()
+	m.state = stateFileBrowser
+	m.selectedOption = 1 // Folder detection
+	m.currentDir = "/test/dir"
+	
+	m.entries = []FileEntry{
+		{Name: "..", IsDir: true},
+	}
+	m.fileCursor = 0
+	
+	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	
+	if mResult.state != stateFileBrowser {
+		t.Errorf("expected state to remain stateFileBrowser, got %v", mResult.state)
+	}
+	if mResult.scanPath != "" {
+		t.Error("expected scanPath to be empty")
+	}
+}

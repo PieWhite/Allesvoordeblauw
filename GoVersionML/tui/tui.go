@@ -158,11 +158,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					_ = m.loadDirectory(parent)
 				}
 			case "x", "X":
-				if m.selectedOption == 0 && len(m.entries) > 0 && m.fileCursor < len(m.entries) {
+				if len(m.entries) > 0 && m.fileCursor < len(m.entries) {
 					entry := m.entries[m.fileCursor]
-					if !entry.IsDir {
-						ext := strings.ToLower(filepath.Ext(entry.Name))
-						if ext == ".json" || ext == ".ndjson" {
+					if m.selectedOption == 0 {
+						if !entry.IsDir {
+							ext := strings.ToLower(filepath.Ext(entry.Name))
+							if ext == ".json" || ext == ".ndjson" {
+								m.scanPath = filepath.Join(m.currentDir, entry.Name)
+								m.state = stateConfirmSelection
+							}
+						}
+					} else if m.selectedOption == 1 {
+						if entry.IsDir && entry.Name != ".." {
 							m.scanPath = filepath.Join(m.currentDir, entry.Name)
 							m.state = stateConfirmSelection
 						}
@@ -291,19 +298,7 @@ func (m Model) View() string {
 					sizeStr = " (" + formatSize(entry.Size) + ")"
 				}
 
-				// If it's a valid json/ndjson file, remind that they can press 'x'
-				actionHint := ""
-				if m.selectedOption == 0 && !entry.IsDir {
-					ext := strings.ToLower(filepath.Ext(entry.Name))
-					if ext == ".json" || ext == ".ndjson" {
-						actionHint = " [Press 'x' to Select]"
-					}
-				}
-
 				lineContent := icon + " " + nameStr + sizeStr
-				if actionHint != "" {
-					lineContent += lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Italic(true).Render(actionHint)
-				}
 
 				if m.fileCursor == i {
 					sb.WriteString(selectedLineStyle.Render("  > "+lineContent) + "\n")
@@ -313,13 +308,29 @@ func (m Model) View() string {
 			}
 		}
 
-		sb.WriteString("\n  " + hintStyle.Render("Use ↑/↓ or j/k to navigate • Enter to open folder • Backspace to go up • Esc to return") + "\n\n")
+		// Dedicated action footer with bright green text
+		var actionHintText string
+		if m.selectedOption == 0 {
+			actionHintText = "Press 'x' to select highlighted file for scanning"
+		} else {
+			actionHintText = "Press 'x' to scan highlighted folder"
+		}
+		actionHintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Italic(true).Bold(true)
+		sb.WriteString("\n  " + actionHintStyle.Render(actionHintText) + "\n")
+
+		// Standard navigation footer
+		sb.WriteString("  " + hintStyle.Render("Use ↑/↓ or j/k to navigate • Enter to open folder • Backspace to go up • Esc to return") + "\n\n")
 
 	} else if m.state == stateConfirmSelection {
 		sb.WriteString("  " + titleStyle.Render("Confirm Scan Action") + "\n\n")
 
 		fileName := filepath.Base(m.scanPath)
-		promptText := fmt.Sprintf("Proceed with %s?", fileName)
+		var promptText string
+		if m.selectedOption == 1 {
+			promptText = fmt.Sprintf("Proceed with scanning folder %s?", fileName)
+		} else {
+			promptText = fmt.Sprintf("Proceed with %s?", fileName)
+		}
 		sb.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true).Render(promptText) + "\n\n")
 
 		// Stylized choices
