@@ -78,9 +78,9 @@ func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
 		}
 	}
 
-	// if localMaxWindow > 0 {
-	// 	d.updateMaxWindowAndFlush(localMaxWindow)
-	// }
+	if localMaxWindow > 0 {
+		d.updateMaxWindowAndFlush(localMaxWindow)
+	}
 }
 
 func (d *Detector) updateMaxWindowAndFlush(win int64) {
