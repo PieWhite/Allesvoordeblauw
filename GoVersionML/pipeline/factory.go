@@ -33,7 +33,7 @@ func RunPipelineForInput(cfg *config.AppConfig) ([]models.MLResult, int64, error
 		return routeSingleFile(cfg.InputPath, cfg.ModelPath)
 	}
 
-	return runDirectoryPipeline(cfg.InputPath, cfg.ModelPath)
+	return runDirectoryPipeline(cfg)
 }
 
 // routeSingleFile dispatches a single file to the correct scanner based on extension.
@@ -52,8 +52,8 @@ func routeSingleFile(inputPath, modelPath string) ([]models.MLResult, int64, err
 	}
 }
 
-func runDirectoryPipeline(dirPath, modelPath string) ([]models.MLResult, int64, error) {
-	classified, err := classifyDirectory(dirPath)
+func runDirectoryPipeline(cfg *config.AppConfig) ([]models.MLResult, int64, error) {
+	classified, err := classifyDirectory(cfg.InputPath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("error walking directory: %w", err)
 	}
@@ -67,11 +67,13 @@ func runDirectoryPipeline(dirPath, modelPath string) ([]models.MLResult, int64, 
 		fmt.Printf("Unsupported file types detected (%d files). These will be skipped.\n", len(classified.unsupported))
 	}
 
-	if err := confirmDirectoryParse(classified); err != nil {
-		return nil, 0, err
+	if !cfg.SkipConfirm {
+		if err := confirmDirectoryParse(classified); err != nil {
+			return nil, 0, err
+		}
 	}
 
-	return processBatch(classified, modelPath, totalFiles)
+	return processBatch(classified, cfg.ModelPath, totalFiles)
 }
 
 func classifyDirectory(dirPath string) (classifiedFiles, error) {

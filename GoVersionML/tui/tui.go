@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -35,7 +36,19 @@ type FileEntry struct {
 }
 
 // Custom Bubble Tea message definitions for concurrent progression
-type progressMsg int64
+type tickMsg time.Time
+
+func tick() tea.Cmd {
+	return tea.Tick(time.Millisecond*50, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
+func listenForFinished(finishedChan chan scanFinishedMsg) tea.Cmd {
+	return func() tea.Msg {
+		return <-finishedChan
+	}
+}
 
 type scanFinishedMsg struct {
 	results      []models.MLResult
@@ -61,7 +74,7 @@ type Model struct {
 	confirmedScan bool
 
 	// Background scanning channels
-	progressChan   chan int64
+	sharedBytesRead *int64
 	finishedChan   chan scanFinishedMsg
 	scanTotalBytes int64
 	scanReadBytes  int64
@@ -175,17 +188,7 @@ func (m *Model) getScanTotalSize() int64 {
 	return total
 }
 
-// listenForProgress blocks waiting for progress delta chunks or finished scans.
-func listenForProgress(progressChan chan int64, finishedChan chan scanFinishedMsg) tea.Cmd {
-	return func() tea.Msg {
-		select {
-		case n := <-progressChan:
-			return progressMsg(n)
-		case finish := <-finishedChan:
-			return finish
-		}
-	}
-}
+
 
 // Update handles message updates in the Bubble Tea loop.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -196,9 +199,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 
-	case progressMsg:
-		m.scanReadBytes += int64(msg)
-		return m, listenForProgress(m.progressChan, m.finishedChan)
+	case tickMsg:
+		if m.state == stateScanning {
+			if m.sharedBytesRead != nil {
+				m.scanReadBytes = atomic.LoadInt64(m.sharedBytesRead)
+			}
+			return m, tick()
+		}
+		return m, nil
 
 	case scanFinishedMsg:
 		m.scanDuration = msg.duration
@@ -330,19 +338,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateScanning
 				m.scanTotalBytes = m.getScanTotalSize()
 				m.scanReadBytes = 0
-				m.progressChan = make(chan int64, 100000)
 				m.finishedChan = make(chan scanFinishedMsg, 1)
 
+				var initialBytes int64
+				m.sharedBytesRead = &initialBytes
+
 				// Fire background scanning thread asynchronously
-				go func(scanPath string, progressChan chan int64, finishedChan chan scanFinishedMsg) {
+				go func(scanPath string, finishedChan chan scanFinishedMsg, sharedBytesRead *int64) {
 					pipeline.OnProgress = func(delta int64) {
-						progressChan <- delta
+						atomic.AddInt64(sharedBytesRead, delta)
 					}
 
 					start := time.Now()
 					appConfig := &config.AppConfig{
-						ModelPath: getModelPath(),
-						InputPath: scanPath,
+						ModelPath:   getModelPath(),
+						InputPath:   scanPath,
+						SkipConfirm: true,
 					}
 					results, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
 					duration := time.Since(start)
@@ -355,9 +366,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						duration:     duration,
 						err:          err,
 					}
-				}(m.scanPath, m.progressChan, m.finishedChan)
+				}(m.scanPath, m.finishedChan, m.sharedBytesRead)
 
-				return m, listenForProgress(m.progressChan, m.finishedChan)
+				return m, tea.Batch(
+					listenForFinished(m.finishedChan),
+					tick(),
+				)
 
 			case "n", "N":
 				m.state = stateFileBrowser

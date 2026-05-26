@@ -132,7 +132,6 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 
 			if nextRes.records != nil {
 				recordsPtr := nextRes.records
-				clear((*recordsPtr)[:cap(*recordsPtr)])
 				*recordsPtr = (*recordsPtr)[:0]
 				recordsPool.Put(recordsPtr)
 			}
@@ -160,7 +159,6 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 
 			if nextRes.records != nil {
 				recordsPtr := nextRes.records
-				clear((*recordsPtr)[:cap(*recordsPtr)])
 				*recordsPtr = (*recordsPtr)[:0]
 				recordsPool.Put(recordsPtr)
 			}
@@ -287,8 +285,6 @@ func Worker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sync.
 			*recordsPtr = records
 			resultsChan <- workerResult{records: recordsPtr, err: firstErr, batch: batch}
 		} else {
-			clear((*recordsPtr)[:cap(*recordsPtr)])
-			*recordsPtr = (*recordsPtr)[:0]
 			recordsPool.Put(recordsPtr)
 			batchPool.Put(batch)
 		}

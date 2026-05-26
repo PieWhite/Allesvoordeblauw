@@ -9,11 +9,12 @@ import (
 // AppConfig holds the configuration state for the application.
 // This struct encapsulates configuration, replacing the loose global parsing.
 type AppConfig struct {
-	ModelPath  string
-	OutputFile string
-	InputPath  string
-	CpuProfile string
-	MemProfile string
+	ModelPath   string
+	OutputFile  string
+	InputPath   string
+	CpuProfile  string
+	MemProfile  string
+	SkipConfirm bool
 }
 
 // ParseFlags reads command-line flags and arguments, populating the AppConfig.

@@ -341,32 +341,33 @@ func TestModel_ConfirmSelection_Confirm(t *testing.T) {
 		t.Errorf("expected state to switch to stateScanning, got %v", mResult.state)
 	}
 	if cmd == nil {
-		t.Error("expected non-nil progress listener command")
+		t.Error("expected non-nil command")
 	}
-	if mResult.progressChan == nil || mResult.finishedChan == nil {
-		t.Error("expected channels to be initialized")
+	if mResult.sharedBytesRead == nil || mResult.finishedChan == nil {
+		t.Error("expected atomic pointer and channels to be initialized")
 	}
 }
 
 func TestModel_ScanningState_MsgHandlers(t *testing.T) {
 	m := NewModel()
 	m.state = stateScanning
-	m.progressChan = make(chan int64, 10)
+	var sharedBytes int64 = 150
+	m.sharedBytesRead = &sharedBytes
 	m.finishedChan = make(chan scanFinishedMsg, 1)
 	m.scanTotalBytes = 1000
 	m.scanReadBytes = 0
 
-	// Handle progressMsg delta
-	updatedModel, cmd := m.Update(progressMsg(150))
+	// Handle tickMsg
+	updatedModel, cmd := m.Update(tickMsg(time.Now()))
 	mResult, ok := updatedModel.(Model)
 	if !ok {
 		t.Fatalf("expected model to be of type Model")
 	}
 	if mResult.scanReadBytes != 150 {
-		t.Errorf("expected scanReadBytes to accumulate to 150, got %d", mResult.scanReadBytes)
+		t.Errorf("expected scanReadBytes to load 150 from atomic, got %d", mResult.scanReadBytes)
 	}
 	if cmd == nil {
-		t.Error("expected progress listener command to be rescheduled")
+		t.Error("expected tick command to be rescheduled")
 	}
 
 	// Handle scanFinishedMsg completion
