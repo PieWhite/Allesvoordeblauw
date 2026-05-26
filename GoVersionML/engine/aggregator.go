@@ -108,7 +108,7 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 			stats.IP = internedSrc
 			shard.IPs[key] = stats
 		}
-		
+
 		internedDst := shard.intern(record.Dst4Addr)
 		a.updateOutboundStats(stats, record, first, internedDst)
 		shard.Unlock()
@@ -150,22 +150,22 @@ func (a *Aggregator) AllIPStats() []*IPStats {
 
 func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time, internedDst string) {
 	stats.FlowCount++
-	
+
 	if stats.UniqueDstIPs == nil {
 		stats.UniqueDstIPs = make(map[string]struct{})
 	}
 	stats.UniqueDstIPs[internedDst] = struct{}{}
-	
+
 	if stats.UniqueDstPorts == nil {
 		stats.UniqueDstPorts = make(map[int]struct{})
 	}
 	stats.UniqueDstPorts[record.DstPort] = struct{}{}
-	
+
 	if stats.OutboundDstPorts == nil {
 		stats.OutboundDstPorts = make(map[int]struct{})
 	}
 	stats.OutboundDstPorts[record.DstPort] = struct{}{}
-	
+
 	stats.TotalBytes += float64(record.InBytes)
 	stats.TotalPackets += float64(record.InPackets)
 
@@ -204,10 +204,9 @@ func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord
 	if s.TargetStartTimes == nil {
 		s.TargetStartTimes = make(map[TargetKey][]float64)
 	}
-	
-	// Cap the number of timestamps stored per target key within a 5-minute window to 10.
-	// This bounds the memory footprint and CPU sorting overhead to near-zero, while
-	// providing a statistically perfect representation of the Inter-Arrival Time (IAT) metrics.
+
+	// This bounds the memory footprint and CPU sorting overhead, at the cost of approximating
+	// the Inter-Arrival Time (IAT) metrics for very high-volume targets.
 	if len(s.TargetStartTimes[tKey]) < 10 {
 		s.TargetStartTimes[tKey] = append(s.TargetStartTimes[tKey], float64(first.UnixNano())/1e9)
 	}

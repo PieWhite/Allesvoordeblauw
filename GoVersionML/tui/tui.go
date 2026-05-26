@@ -345,9 +345,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Fire background scanning thread asynchronously
 				go func(scanPath string, finishedChan chan scanFinishedMsg, sharedBytesRead *int64) {
+					old := pipeline.OnProgress
 					pipeline.OnProgress = func(delta int64) {
 						atomic.AddInt64(sharedBytesRead, delta)
 					}
+					defer func() {
+						pipeline.OnProgress = old
+					}()
 
 					start := time.Now()
 					appConfig := &config.AppConfig{
@@ -357,8 +361,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					results, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
 					duration := time.Since(start)
-
-					pipeline.OnProgress = nil
 
 					finishedChan <- scanFinishedMsg{
 						results:      results,
