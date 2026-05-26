@@ -78,9 +78,9 @@ func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
 		}
 	}
 
-	// if localMaxWindow > 0 {
-	// 	d.updateMaxWindowAndFlush(localMaxWindow)
-	// }
+	if localMaxWindow > 0 {
+		d.updateMaxWindowAndFlush(localMaxWindow)
+	}
 }
 
 func (d *Detector) updateMaxWindowAndFlush(win int64) {
@@ -88,7 +88,7 @@ func (d *Detector) updateMaxWindowAndFlush(win int64) {
 	for win > curr {
 		if d.currentWindow.CompareAndSwap(curr, win) {
 			// We advanced the global maximum window.
-			// Flush data older than (maxWindow - 10 minutes)
+			// Flush data older than (maxWindow - 5 minutes)
 			d.flushOldWindows(win - 300)
 			break
 		}

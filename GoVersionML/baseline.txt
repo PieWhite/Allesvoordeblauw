@@ -2,11 +2,11 @@
 goarch: amd64
 pkg: goversion/main
 cpu: 11th Gen Intel(R) Core(TM) i5-11300H @ 3.10GHz
-BenchmarkEndToEnd-8   	       2	 583778200 ns/op	427977868 B/op	 1256157 allocs/op
-BenchmarkEndToEnd-8   	       2	 647507500 ns/op	423070204 B/op	 1202742 allocs/op
-BenchmarkEndToEnd-8   	       2	 585902800 ns/op	437154636 B/op	 1246309 allocs/op
-BenchmarkEndToEnd-8   	       2	 561690050 ns/op	429117524 B/op	 1238464 allocs/op
-BenchmarkEndToEnd-8   	       2	 559743400 ns/op	444158056 B/op	 1244203 allocs/op
-BenchmarkEndToEnd-8   	       2	 545798600 ns/op	418023792 B/op	 1244959 allocs/op
+BenchmarkEndToEnd-8   	       2	 760679650 ns/op	123074912 B/op	  931653 allocs/op
+BenchmarkEndToEnd-8   	       2	 762615100 ns/op	118946376 B/op	  931625 allocs/op
+BenchmarkEndToEnd-8   	       2	 766791900 ns/op	119608172 B/op	  931638 allocs/op
+BenchmarkEndToEnd-8   	       2	 800144250 ns/op	118101652 B/op	  931620 allocs/op
+BenchmarkEndToEnd-8   	       1	1408698000 ns/op	140225904 B/op	  931738 allocs/op
+BenchmarkEndToEnd-8   	       1	1499027600 ns/op	134858472 B/op	  931714 allocs/op
 PASS
-ok  	goversion/main	11.394s
+ok  	goversion/main	13.239s
