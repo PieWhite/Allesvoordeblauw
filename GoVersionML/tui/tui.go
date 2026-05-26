@@ -4,10 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"goversion/config"
+	"goversion/models"
+	"goversion/pipeline"
 )
 
 type sessionState int
@@ -16,6 +20,7 @@ const (
 	stateMenu sessionState = iota
 	stateFileBrowser
 	stateConfirmSelection
+	stateResults
 )
 
 // FileEntry represents a file or directory item.
@@ -40,6 +45,12 @@ type Model struct {
 	// Scan selection fields
 	scanPath      string
 	confirmedScan bool
+
+	// Scan results fields
+	scanResults  []models.MLResult
+	totalRecords int64
+	scanError    error
+	showFullLog  bool
 }
 
 // NewModel initializes the TUI model.
@@ -95,6 +106,22 @@ func (m *Model) loadDirectory(dir string) error {
 	return nil
 }
 
+// getModelPath resolves model location dynamically.
+func getModelPath() string {
+	// Try main directory relative path
+	p1 := "../Xgboost/botnet_xgboost.json"
+	if _, err := os.Stat(p1); err == nil {
+		return p1
+	}
+	// Try root relative path
+	p2 := "./Xgboost/botnet_xgboost.json"
+	if _, err := os.Stat(p2); err == nil {
+		return p2
+	}
+	// Default fallback
+	return "../Xgboost/botnet_xgboost.json"
+}
+
 // Update handles message updates in the Bubble Tea loop.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -105,6 +132,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "esc":
+			if m.state == stateResults {
+				m.state = stateFileBrowser
+				m.scanPath = ""
+				m.scanResults = nil
+				m.totalRecords = 0
+				m.scanError = nil
+				m.showFullLog = false
+				return m, nil
+			}
 			if m.state == stateConfirmSelection {
 				m.state = stateFileBrowser
 				m.scanPath = ""
@@ -193,10 +229,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "y", "Y":
 				m.confirmedScan = true
-				return m, tea.Quit
+
+				// Execute ML scan synchronously
+				appConfig := &config.AppConfig{
+					ModelPath: getModelPath(),
+					InputPath: m.scanPath,
+				}
+				results, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
+				if err != nil {
+					m.scanError = err
+				} else {
+					// Sort results descending by ML probability
+					sort.SliceStable(results, func(i, j int) bool {
+						return results[i].Probability > results[j].Probability
+					})
+					m.scanResults = results
+					m.totalRecords = totalRecords
+				}
+
+				m.state = stateResults
+				return m, nil
+
 			case "n", "N":
 				m.state = stateFileBrowser
 				m.scanPath = ""
+			}
+		} else if m.state == stateResults {
+			switch msg.String() {
+			case "x", "X":
+				if m.scanError == nil {
+					m.showFullLog = true
+					m.quitting = true
+					return m, tea.Quit
+				}
 			}
 		}
 	}
@@ -341,6 +406,65 @@ func (m Model) View() string {
 		sb.WriteString("    " + noStyle.Render("[n] No, cancel") + "\n\n")
 
 		sb.WriteString("  " + hintStyle.Render("Press 'y' to confirm scan, or 'n'/Esc to go back.") + "\n\n")
+
+	} else if m.state == stateResults {
+		sb.WriteString("  " + titleStyle.Render("Pencilgon Scan Results") + "\n\n")
+
+		fileName := filepath.Base(m.scanPath)
+		sb.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#BD93F9")).Render("Target: "+fileName) + "\n")
+
+		if m.scanError != nil {
+			sb.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true).Render("Scan Failed:") + "\n")
+			sb.WriteString("  " + textStyle.Render(m.scanError.Error()) + "\n\n")
+		} else {
+			// Count Botnet IPs
+			var botnetCount int
+			for _, res := range m.scanResults {
+				if res.IsBotnet {
+					botnetCount++
+				}
+			}
+
+			sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Processed Records: %d", m.totalRecords)) + "\n")
+			sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Botnet IPs Identified: %d (out of %d total communicating IPs)", botnetCount, len(m.scanResults))) + "\n\n")
+
+			sb.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6")).Bold(true).Render("Top 10 Highest Scored IPs:") + "\n")
+
+			limit := 10
+			if len(m.scanResults) < limit {
+				limit = len(m.scanResults)
+			}
+
+			if limit == 0 {
+				sb.WriteString("    (No communicating IPs found)\n")
+			} else {
+				for i := 0; i < limit; i++ {
+					res := m.scanResults[i]
+					var typeStr string
+					var typeColor string
+					if res.IsBotnet {
+						typeStr = "BOTNET"
+						typeColor = "#FF5555" // Dracula Red
+					} else {
+						typeStr = "BENIGN"
+						typeColor = "#50FA7B" // Dracula Green
+					}
+
+					label := fmt.Sprintf("  %2d. IP: %-15s | ML Probability: %6.2f%% | ", i+1, res.IP, res.Probability)
+					sb.WriteString(label + lipgloss.NewStyle().Foreground(lipgloss.Color(typeColor)).Bold(true).Render(typeStr) + "\n")
+				}
+			}
+			sb.WriteString("\n")
+		}
+
+		// Dedicated action footer with bright green text
+		if m.scanError == nil {
+			actionHintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Italic(true).Bold(true)
+			sb.WriteString("  " + actionHintStyle.Render("Press 'x' to see full log in terminal") + "\n")
+		}
+
+		// Standard navigation footer
+		sb.WriteString("  " + hintStyle.Render("Press Esc to return to directory explorer • 'q' to exit") + "\n\n")
 	}
 
 	// Render within an elegant border
@@ -367,19 +491,19 @@ func formatSize(b int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-// Start launches the Bubble Tea program and returns the confirmed path to scan if selected.
-func Start() (string, error) {
+// Start launches the Bubble Tea program and returns the confirmed path to scan and whether to show the full log.
+func Start() (string, bool, error) {
 	m := NewModel()
 	p := tea.NewProgram(m)
 	finalModel, err := p.Run()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	if tuiModel, ok := finalModel.(Model); ok {
 		if tuiModel.confirmedScan {
-			return tuiModel.scanPath, nil
+			return tuiModel.scanPath, tuiModel.showFullLog, nil
 		}
 	}
-	return "", nil
+	return "", false, nil
 }

@@ -324,7 +324,7 @@ func TestModel_ConfirmSelection_Cancel(t *testing.T) {
 func TestModel_ConfirmSelection_Confirm(t *testing.T) {
 	m := NewModel()
 	m.state = stateConfirmSelection
-	m.scanPath = "/test/dir/data.json"
+	m.scanPath = "/test/dir/data.json" // non-existent file, will trigger scanError
 	
 	updatedModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
 	mResult, ok := updatedModel.(Model)
@@ -335,8 +335,14 @@ func TestModel_ConfirmSelection_Confirm(t *testing.T) {
 	if !mResult.confirmedScan {
 		t.Error("expected confirmedScan to be true")
 	}
-	if cmd == nil {
-		t.Error("expected non-nil quit command")
+	if mResult.state != stateResults {
+		t.Errorf("expected state to be stateResults, got %v", mResult.state)
+	}
+	if mResult.scanError == nil {
+		t.Error("expected scanError to be set for non-existent file")
+	}
+	if cmd != nil {
+		t.Error("expected cmd to be nil since we switch to stateResults")
 	}
 }
 
@@ -388,5 +394,52 @@ func TestModel_FileBrowser_PressX_OnParentDirIgnored(t *testing.T) {
 	}
 	if mResult.scanPath != "" {
 		t.Error("expected scanPath to be empty")
+	}
+}
+
+func TestModel_ResultsState_PressX_Exits(t *testing.T) {
+	m := NewModel()
+	m.state = stateResults
+	m.scanPath = "/test/dir/data.json"
+	m.confirmedScan = true
+	m.scanError = nil // Simulate successful scan
+	
+	updatedModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	
+	if !mResult.quitting {
+		t.Error("expected quitting to be true")
+	}
+	if !mResult.showFullLog {
+		t.Error("expected showFullLog to be true")
+	}
+	if cmd == nil {
+		t.Error("expected non-nil quit command")
+	}
+}
+
+func TestModel_ResultsState_EscGoesBack(t *testing.T) {
+	m := NewModel()
+	m.state = stateResults
+	m.scanPath = "/test/dir/data.json"
+	m.confirmedScan = true
+	
+	updatedModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	
+	if mResult.state != stateFileBrowser {
+		t.Errorf("expected state to return to stateFileBrowser, got %v", mResult.state)
+	}
+	if mResult.scanPath != "" {
+		t.Error("expected scanPath to be cleared")
+	}
+	if cmd != nil {
+		t.Error("expected cmd to be nil")
 	}
 }
