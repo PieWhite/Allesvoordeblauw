@@ -516,3 +516,69 @@ func TestModel_FullLog_Scrolling(t *testing.T) {
 		t.Errorf("expected state to return to stateResults, got %v", mResult4.state)
 	}
 }
+
+func TestModel_WindowSizeMsg(t *testing.T) {
+	m := NewModel()
+	m.state = stateMenu
+
+	// Handle window size msg
+	updatedModel, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+
+	if mResult.width != 80 || mResult.height != 40 {
+		t.Errorf("expected dimensions to be 80x40, got %dx%d", mResult.width, mResult.height)
+	}
+
+	if cmd != nil {
+		t.Errorf("expected nil command, got %v", cmd)
+	}
+}
+
+func TestModel_FileBrowser_ViewportScrolling(t *testing.T) {
+	m := NewModel()
+	m.state = stateFileBrowser
+	m.height = 20 // This makes maxEntries = 20 - 15 = 5
+	m.width = 60
+
+	// Populate entries without fmt
+	for i := 0; i < 15; i++ {
+		name := "file_"
+		if i == 0 {
+			name += "0"
+		} else if i == 10 {
+			name += "10"
+		} else {
+			name += "other"
+		}
+		m.entries = append(m.entries, FileEntry{
+			Name:  name + ".json",
+			IsDir: false,
+			Size:  100,
+		})
+	}
+	m.fileCursor = 0
+
+	view := m.View()
+	if !strings.Contains(view, "file_0.json") {
+		t.Error("expected first file to be in view initially")
+	}
+	if strings.Contains(view, "file_10.json") {
+		t.Error("expected file_10.json to be out of view viewport initially")
+	}
+	if !strings.Contains(view, "Showing 1-5 of 15") {
+		t.Errorf("expected viewport range to be Showing 1-5 of 15, view: %s", view)
+	}
+
+	// Move cursor deep down
+	m.fileCursor = 10
+	viewAfterMove := m.View()
+	if !strings.Contains(viewAfterMove, "file_10.json") {
+		t.Error("expected file_10.json to be visible after moving cursor to 10")
+	}
+	if !strings.Contains(viewAfterMove, "Showing 9-13 of 15") { // Center window around 10: 10 - 5/2 = 8. start = 8, end = 13.
+		t.Errorf("expected viewport range to adjust to Showing 9-13 of 15, view: %s", viewAfterMove)
+	}
+}

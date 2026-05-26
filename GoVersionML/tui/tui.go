@@ -75,6 +75,10 @@ type Model struct {
 	// Full Log scroll fields
 	fullLogText  string
 	logScrollRow int
+
+	// Terminal window dimensions
+	width  int
+	height int
 }
 
 // NewModel initializes the TUI model.
@@ -187,6 +191,11 @@ func listenForProgress(progressChan chan int64, finishedChan chan scanFinishedMs
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	// Custom thread-safe concurrent message routing
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+
 	case progressMsg:
 		m.scanReadBytes += int64(msg)
 		return m, listenForProgress(m.progressChan, m.finishedChan)
@@ -369,6 +378,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if m.state == stateFullLog {
 			lines := strings.Split(m.fullLogText, "\n")
 			maxLinesToShow := 18
+			if m.height > 0 {
+				maxLinesToShow = m.height - 10
+				if maxLinesToShow < 5 {
+					maxLinesToShow = 5
+				}
+			}
 			maxScroll := len(lines) - maxLinesToShow
 			if maxScroll < 0 {
 				maxScroll = 0
@@ -471,7 +486,31 @@ func (m Model) View() string {
 		if len(m.entries) == 0 {
 			sb.WriteString("    (Empty Directory)\n")
 		} else {
-			for i, entry := range m.entries {
+			maxEntries := 10 // beyond a certain point: default to 10
+			if m.height > 0 {
+				maxEntries = m.height - 15
+				if maxEntries < 3 {
+					maxEntries = 3
+				}
+			}
+
+			start := 0
+			end := len(m.entries)
+			if len(m.entries) > maxEntries {
+				start = m.fileCursor - maxEntries/2
+				if start < 0 {
+					start = 0
+				}
+				end = start + maxEntries
+				if end > len(m.entries) {
+					end = len(m.entries)
+					start = end - maxEntries
+				}
+			}
+
+			var lines []string
+			for i := start; i < end; i++ {
+				entry := m.entries[i]
 				icon := "📁"
 				if !entry.IsDir {
 					ext := strings.ToLower(filepath.Ext(entry.Name))
@@ -496,11 +535,34 @@ func (m Model) View() string {
 
 				lineContent := icon + " " + nameStr + sizeStr
 
+				var formattedLine string
 				if m.fileCursor == i {
-					sb.WriteString(selectedLineStyle.Render("  > "+lineContent) + "\n")
+					formattedLine = selectedLineStyle.Render("  > "+lineContent)
 				} else {
-					sb.WriteString("    "+lineContent + "\n")
+					formattedLine = "    "+lineContent
 				}
+				lines = append(lines, formattedLine)
+			}
+
+			if len(m.entries) > maxEntries {
+				targetWidth := 0
+				for _, line := range lines {
+					w := lipgloss.Width(line)
+					if w > targetWidth {
+						targetWidth = w
+					}
+				}
+				if m.width > 0 {
+					innerWidth := m.width - 10
+					if innerWidth > targetWidth {
+						targetWidth = innerWidth
+					}
+				}
+				lines = drawWithScrollbar(lines, start, len(lines), len(m.entries), targetWidth)
+			}
+
+			for _, line := range lines {
+				sb.WriteString(line + "\n")
 			}
 		}
 
@@ -515,7 +577,29 @@ func (m Model) View() string {
 		sb.WriteString("\n  " + actionHintStyle.Render(actionHintText) + "\n")
 
 		// Standard navigation footer
-		sb.WriteString("  " + hintStyle.Render("Use ↑/↓ or j/k to navigate • Enter to open folder • Backspace to go up • Esc to return") + "\n\n")
+		scrollText := ""
+		if len(m.entries) > 0 {
+			maxEntries := 10
+			if m.height > 0 {
+				maxEntries = m.height - 15
+				if maxEntries < 3 {
+					maxEntries = 3
+				}
+			}
+			if len(m.entries) > maxEntries {
+				start := m.fileCursor - maxEntries/2
+				if start < 0 {
+					start = 0
+				}
+				end := start + maxEntries
+				if end > len(m.entries) {
+					end = len(m.entries)
+					start = end - maxEntries
+				}
+				scrollText = fmt.Sprintf(" • [Showing %d-%d of %d]", start+1, end, len(m.entries))
+			}
+		}
+		sb.WriteString("  " + hintStyle.Render("Use ↑/↓ or j/k to navigate • Enter to open folder • Backspace to go up • Esc to return"+scrollText) + "\n\n")
 
 	} else if m.state == stateConfirmSelection {
 		sb.WriteString("  " + titleStyle.Render("Confirm Scan Action") + "\n\n")
@@ -639,6 +723,12 @@ func (m Model) View() string {
 
 		lines := strings.Split(m.fullLogText, "\n")
 		maxLinesToShow := 18
+		if m.height > 0 {
+			maxLinesToShow = m.height - 10
+			if maxLinesToShow < 5 {
+				maxLinesToShow = 5
+			}
+		}
 
 		// Bounds check
 		maxScroll := len(lines) - maxLinesToShow
@@ -658,9 +748,31 @@ func (m Model) View() string {
 		}
 
 		// Render scrollable log lines
+		var visibleLines []string
 		logLineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F8F8F2"))
 		for i := m.logScrollRow; i < endIndex; i++ {
-			sb.WriteString("  " + logLineStyle.Render(lines[i]) + "\n")
+			visibleLines = append(visibleLines, "  " + logLineStyle.Render(lines[i]))
+		}
+
+		if len(lines) > maxLinesToShow {
+			targetWidth := 0
+			for _, line := range visibleLines {
+				w := lipgloss.Width(line)
+				if w > targetWidth {
+					targetWidth = w
+				}
+			}
+			if m.width > 0 {
+				innerWidth := m.width - 10
+				if innerWidth > targetWidth {
+					targetWidth = innerWidth
+				}
+			}
+			visibleLines = drawWithScrollbar(visibleLines, m.logScrollRow, len(visibleLines), len(lines), targetWidth)
+		}
+
+		for _, line := range visibleLines {
+			sb.WriteString(line + "\n")
 		}
 
 		// Scroll indicator bar with green accent
@@ -684,6 +796,72 @@ func (m Model) View() string {
 		Margin(1, 2)
 
 	return borderStyle.Render(sb.String())
+}
+
+// padLine pads a string containing ANSI escape codes to a specific visual width.
+func padLine(s string, width int) string {
+	visualLen := lipgloss.Width(s)
+	if visualLen >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-visualLen)
+}
+
+// drawWithScrollbar renders a list of items with a vertical scrollbar on the right side.
+func drawWithScrollbar(items []string, visibleStart, visibleCount, totalItems int, width int) []string {
+	if totalItems <= visibleCount {
+		return items
+	}
+
+	trackHeight := visibleCount
+	if trackHeight <= 0 {
+		return items
+	}
+
+	// Thumb size is proportional to visible items, at least 1 line
+	thumbHeight := int(float64(visibleCount) * float64(visibleCount) / float64(totalItems))
+	if thumbHeight < 1 {
+		thumbHeight = 1
+	}
+	if thumbHeight > trackHeight {
+		thumbHeight = trackHeight
+	}
+
+	// Thumb position is proportional to scroll position
+	maxScroll := totalItems - visibleCount
+	scrollFraction := 0.0
+	if maxScroll > 0 {
+		scrollFraction = float64(visibleStart) / float64(maxScroll)
+	}
+
+	thumbStart := int(scrollFraction * float64(trackHeight-thumbHeight))
+	if thumbStart < 0 {
+		thumbStart = 0
+	}
+	if thumbStart+thumbHeight > trackHeight {
+		thumbStart = trackHeight - thumbHeight
+	}
+
+	scrollbarColor := lipgloss.NewStyle().Foreground(lipgloss.Color("#BD93F9")) // Purple track
+	thumbStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6"))      // Pink thumb
+
+	res := make([]string, len(items))
+	for i := 0; i < len(items); i++ {
+		char := "│"
+		if i >= thumbStart && i < thumbStart+thumbHeight {
+			char = "█"
+		}
+
+		styledChar := ""
+		if char == "█" {
+			styledChar = thumbStyle.Render(char)
+		} else {
+			styledChar = scrollbarColor.Render(char)
+		}
+
+		res[i] = padLine(items[i], width) + " " + styledChar
+	}
+	return res
 }
 
 // formatSize formats bytes into a human readable size.
