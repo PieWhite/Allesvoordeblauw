@@ -12,9 +12,17 @@ import (
 	"goversion/output"
 	"goversion/pipeline"
 	"goversion/reporter"
+	"goversion/tui"
 )
 
 func main() {
+	if len(os.Args) == 1 {
+		if err := tui.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "Fatal error: %v\n", err)
 		os.Exit(1)
