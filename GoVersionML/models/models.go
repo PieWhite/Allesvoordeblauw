@@ -17,6 +17,7 @@ type MLResult struct {
 	IP          string
 	Probability float64
 	IsBotnet    bool
+	Explanation string
 }
 
 type ScanResult struct {
