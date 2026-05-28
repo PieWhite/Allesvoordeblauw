@@ -1,5 +1,6 @@
 package models
 
+//easyjson:json
 type NetflowRecord struct {
 	First     string `json:"first"`
 	Last      string `json:"last"`
@@ -13,10 +14,12 @@ type NetflowRecord struct {
 	Dst4Addr  string `json:"dst4_addr"`
 }
 
+//easyjson:json
 type MLResult struct {
 	IP          string
 	Probability float64
 	IsBotnet    bool
+	Explanation string
 }
 
 type ScanResult struct {
