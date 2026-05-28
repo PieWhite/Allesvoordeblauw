@@ -22,7 +22,11 @@ func PrintSummary(out io.Writer, results []models.MLResult, totalRecords int64, 
 	for _, res := range results {
 		if res.IsBotnet {
 			botnetCount++
-			fmt.Fprintf(out, "[BOTNET DETECTED] IP: %-15s | ML Probability: %6.2f%%\n", res.IP, res.Probability)
+			if res.Explanation != "" {
+				fmt.Fprintf(out, "[BOTNET DETECTED] IP: %-15s | ML Probability: %6.2f%% (%s)\n", res.IP, res.Probability, res.Explanation)
+			} else {
+				fmt.Fprintf(out, "[BOTNET DETECTED] IP: %-15s | ML Probability: %6.2f%%\n", res.IP, res.Probability)
+			}
 		}
 	}
 

@@ -200,7 +200,7 @@ func easyjsonD2b7633eDecodeGoversionModels1(in *jlexer.Lexer, out *MLResult) {
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.IP = string(in.String())
+				out.IP = in.UnsafeString()
 			}
 		case "Probability":
 			if in.IsNull() {
@@ -213,6 +213,12 @@ func easyjsonD2b7633eDecodeGoversionModels1(in *jlexer.Lexer, out *MLResult) {
 				in.Skip()
 			} else {
 				out.IsBotnet = bool(in.Bool())
+			}
+		case "Explanation":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Explanation = in.UnsafeString()
 			}
 		default:
 			in.SkipRecursive()
@@ -242,6 +248,11 @@ func easyjsonD2b7633eEncodeGoversionModels1(out *jwriter.Writer, in MLResult) {
 		const prefix string = ",\"IsBotnet\":"
 		out.RawString(prefix)
 		out.Bool(bool(in.IsBotnet))
+	}
+	{
+		const prefix string = ",\"Explanation\":"
+		out.RawString(prefix)
+		out.String(string(in.Explanation))
 	}
 	out.RawByte('}')
 }
