@@ -17,22 +17,6 @@ type RecordProcessor interface {
 
 type StreamFn func(r io.Reader, fn func([]models.NetflowRecord)) error
 
-// OnProgress is an optional thread-safe callback hook to track scanner read progress (in bytes)
-var OnProgress func(bytesRead int64)
-
-// ProgressReader wraps an io.Reader and monitors dynamic bytes read
-type ProgressReader struct {
-	r          io.Reader
-	OnProgress func(int64)
-}
-
-func (pr *ProgressReader) Read(p []byte) (n int, err error) {
-	n, err = pr.r.Read(p)
-	if n > 0 && pr.OnProgress != nil {
-		pr.OnProgress(int64(n))
-	}
-	return n, err
-}
 
 func AnalyzeFile(inputPath string, modelPath string, stream StreamFn) ([]models.MLResult, int64, error) {
 	detector, err := engine.NewDetector(modelPath)

@@ -18,6 +18,7 @@ import (
 type classifiedFiles struct {
 	json        []string
 	ndjson      []string
+	pcap        []string
 	unsupported []string
 }
 
@@ -42,7 +43,7 @@ func routeSingleFile(inputPath, modelPath string) ([]models.MLResult, int64, err
 
 	switch ext {
 	case ".pcap":
-		return nil, 0, fmt.Errorf("pcap pipeline is not yet implemented")
+		return AnalyzePcapFile(inputPath, modelPath, scanner.StreamPCAP)
 	case ".ndjson":
 		return AnalyzeFile(inputPath, modelPath, scanner.StreamNDJSON)
 	case ".json":
@@ -58,9 +59,9 @@ func runDirectoryPipeline(cfg *config.AppConfig) ([]models.MLResult, int64, erro
 		return nil, 0, fmt.Errorf("error walking directory: %w", err)
 	}
 
-	totalFiles := len(classified.json) + len(classified.ndjson)
+	totalFiles := len(classified.json) + len(classified.ndjson) + len(classified.pcap)
 	if totalFiles == 0 {
-		return nil, 0, fmt.Errorf("no .json or .ndjson files found in directory")
+		return nil, 0, fmt.Errorf("no .json, .ndjson or .pcap files found in directory")
 	}
 
 	if len(classified.unsupported) > 0 {
@@ -92,6 +93,8 @@ func classifyDirectory(dirPath string) (classifiedFiles, error) {
 			cf.json = append(cf.json, path)
 		case ".ndjson":
 			cf.ndjson = append(cf.ndjson, path)
+		case ".pcap":
+			cf.pcap = append(cf.pcap, path)
 		default:
 			cf.unsupported = append(cf.unsupported, path)
 		}
@@ -104,16 +107,19 @@ func classifyDirectory(dirPath string) (classifiedFiles, error) {
 func confirmDirectoryParse(cf classifiedFiles) error {
 	jsonCount := len(cf.json)
 	ndjsonCount := len(cf.ndjson)
-
-	switch {
-	case jsonCount > 0 && ndjsonCount == 0:
+	pcapCount := len(cf.pcap)
+ 
+ 	switch {
+	case jsonCount > 0 && ndjsonCount == 0 && pcapCount == 0:
 		fmt.Printf("The following file type has been detected: json (%d files). Continue with json parsing? [y/N]: ", jsonCount)
-	case ndjsonCount > 0 && jsonCount == 0:
+	case ndjsonCount > 0 && jsonCount == 0 && pcapCount == 0:
 		fmt.Printf("The following file type has been detected: ndjson (%d files). Continue with ndjson parsing? [y/N]: ", ndjsonCount)
-	default:
-		fmt.Printf("The following file types have been detected: json (%d files) ndjson (%d files).\n", jsonCount, ndjsonCount)
-		fmt.Print("Continue parsing mixed file types (experimental)? [y/N]: ")
-	}
+	case pcapCount > 0 && jsonCount == 0 && ndjsonCount == 0:
+		fmt.Printf("The following file type has been detected: pcap (%d files). Continue with pcap parsing? [y/N]: ", pcapCount)
+ 	default:
+		fmt.Printf("The following file types have been detected: json (%d files) ndjson (%d files) pcap (%d files).\n", jsonCount, ndjsonCount, pcapCount)
+ 		fmt.Print("Continue parsing mixed file types (experimental)? [y/N]: ")
+ 	}
 
 	reader := bufio.NewReader(os.Stdin)
 	response, err := reader.ReadString('\n')
@@ -134,12 +140,25 @@ func processBatch(cf classifiedFiles, modelPath string, totalFiles int) ([]model
 		return nil, 0, fmt.Errorf("failed loading xgboost model: %w", err)
 	}
 
-	allFiles := append(cf.json, cf.ndjson...)
-	for i, file := range allFiles {
-		stream := streamFnFor(file)
-		fmt.Printf("Processing file %d/%d: %s\n", i+1, totalFiles, filepath.Base(file))
+	allFiles := make([]string, 0, totalFiles)
+	allFiles = append(allFiles, cf.json...)
+	allFiles = append(allFiles, cf.ndjson...)
+	allFiles = append(allFiles, cf.pcap...)
 
-		if _, err := ProcessFile(file, detector, stream); err != nil {
+	for i, file := range allFiles {
+		fmt.Printf("Processing file %d/%d: %s\n", i+1, totalFiles, filepath.Base(file))
+		ext := strings.ToLower(filepath.Ext(file))
+		var err error
+
+		if ext == ".pcap" {
+			_, err = ProcessPcapFile(file, detector, scanner.StreamPCAP)
+		} else if ext == ".json" {
+			_, err = ProcessFile(file, detector, scanner.StreamJSON)
+		} else if ext == ".ndjson" {
+			_, err = ProcessFile(file, detector, scanner.StreamNDJSON)
+		}
+
+		if err != nil {
 			fmt.Printf("Error processing %s: %v\n", file, err)
 			continue
 		}

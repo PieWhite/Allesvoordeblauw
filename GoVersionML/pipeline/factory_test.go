@@ -31,7 +31,7 @@ func TestRunPipelineForInput(t *testing.T) {
 		{
 			name:      "PCAP Extension",
 			filename:  "capture.pcap",
-			wantErr:   "pcap pipeline is not yet implemented",
+			wantErr:   "failed loading xgboost model",
 		},
 		{
 			name:      "JSON Extension with missing model",
@@ -46,7 +46,7 @@ func TestRunPipelineForInput(t *testing.T) {
 		{
 			name:      "Uppercase PCAP Extension",
 			filename:  "CAPTURE.PCAP",
-			wantErr:   "pcap pipeline is not yet implemented",
+			wantErr:   "failed loading xgboost model",
 		},
 		{
 			name:      "Uppercase JSON Extension",
