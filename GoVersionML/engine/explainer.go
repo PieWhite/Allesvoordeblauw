@@ -35,7 +35,7 @@ var FeatureNames = []string{
 type ModelNode struct {
 	NodeID         int         `json:"nodeid"`
 	Depth          int         `json:"depth"`
-	Split          string      `json:"split,omitempty"` // e.g. "f18"
+	Split          string      `json:"split,omitempty"`
 	SplitCondition float64     `json:"split_condition,omitempty"`
 	Yes            int         `json:"yes,omitempty"`
 	No             int         `json:"no,omitempty"`
@@ -71,7 +71,6 @@ type FeatureContribution struct {
 	Contribution float64
 }
 
-// Explain analyzes the model's trees and returns a ranked list of feature contributions.
 func (e *Explainer) Explain(features []float64) []FeatureContribution {
 	contributions := make([]float64, len(FeatureNames))
 
@@ -95,7 +94,6 @@ func (e *Explainer) Explain(features []float64) []FeatureContribution {
 		}
 	}
 
-	// Sort contributions in descending order (highest positive first)
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Contribution > results[j].Contribution
 	})
@@ -115,10 +113,10 @@ func (e *Explainer) traceTree(node ModelNode, x []float64, contributions *[]floa
 		}
 
 		var featIdx int
-		fmt.Sscanf(n.Split, "f%d", &featIdx)
-		if featIdx >= 0 && featIdx < len(x) {
-			pathFeatures = append(pathFeatures, featIdx)
+		if _, err := fmt.Sscanf(n.Split, "f%d", &featIdx); err != nil || featIdx < 0 || featIdx >= len(x) {
+			return
 		}
+		pathFeatures = append(pathFeatures, featIdx)
 
 		val := x[featIdx]
 		nextID := n.No
@@ -146,14 +144,12 @@ func (e *Explainer) traceTree(node ModelNode, x []float64, contributions *[]floa
 	}
 }
 
-// FormatExplanation generates the "(because x, y)" string for the top 2 features.
 func (e *Explainer) FormatExplanation(features []float64) string {
 	contribs := e.Explain(features)
 	if len(contribs) == 0 {
 		return "unknown reasons"
 	}
 
-	// We take the top 4 feature contributions as the most relevant drivers of the prediction.
 	limit := 4
 	if len(contribs) < limit {
 		limit = len(contribs)
@@ -163,7 +159,6 @@ func (e *Explainer) FormatExplanation(features []float64) string {
 	for i := 0; i < limit; i++ {
 		c := contribs[i]
 
-		// Format values elegantly based on their type
 		valStr := ""
 		switch c.Name {
 		case "pct_tcp", "pct_udp", "pct_icmp", "pct_well_known_ports", "pct_high_ports", "pct_syn_only", "pct_rst":
