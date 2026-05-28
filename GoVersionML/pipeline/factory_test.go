@@ -64,9 +64,17 @@ func TestRunPipelineForInput(t *testing.T) {
 			}
 			f.Close()
 
+			originalNetflow := NetflowModelPath
+			originalPcap := PcapModelPath
+			NetflowModelPath = "nonexistent.json"
+			PcapModelPath = "nonexistent.json"
+			t.Cleanup(func() {
+				NetflowModelPath = originalNetflow
+				PcapModelPath = originalPcap
+			})
+
 			cfg := &config.AppConfig{
 				InputPath: path,
-				ModelPath: "nonexistent.json", // to force predictable AnalyzeFile failure
 			}
 
 			_, _, err = RunPipelineForInput(cfg)
@@ -160,11 +168,35 @@ func TestProcessBatchErrorHandling(t *testing.T) {
 		json: []string{"a.json"},
 	}
 
-	_, _, err := processBatch(cf, "missing-model.json", 1)
+	originalNetflow := NetflowModelPath
+	NetflowModelPath = "missing-model.json"
+	t.Cleanup(func() {
+		NetflowModelPath = originalNetflow
+	})
+
+	_, _, err := processBatch(cf, 1)
 	if err == nil {
 		t.Fatal("expected model loading error, got nil")
 	}
 	if !strings.Contains(err.Error(), "failed loading xgboost model") {
 		t.Fatalf("expected wrapped model load error, got %v", err)
 	}
+}
+
+func TestResolveModelPath(t *testing.T) {
+	t.Run("Netflow Resolution", func(t *testing.T) {
+		got := resolveModelPath(false)
+		wantStr := "botnet_xgboost.json"
+		if !strings.Contains(got, wantStr) {
+			t.Errorf("resolveModelPath(false) = %q, expected it to contain %q", got, wantStr)
+		}
+	})
+
+	t.Run("PCAP Resolution", func(t *testing.T) {
+		got := resolveModelPath(true)
+		wantStr := "pcap_xgboost.json"
+		if !strings.Contains(got, wantStr) {
+			t.Errorf("resolveModelPath(true) = %q, expected it to contain %q", got, wantStr)
+		}
+	})
 }

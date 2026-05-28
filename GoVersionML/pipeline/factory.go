@@ -31,23 +31,26 @@ func RunPipelineForInput(cfg *config.AppConfig) ([]models.MLResult, int64, error
 	}
 
 	if !info.IsDir() {
-		return routeSingleFile(cfg.InputPath, cfg.ModelPath)
+		return routeSingleFile(cfg.InputPath)
 	}
 
 	return runDirectoryPipeline(cfg)
 }
 
 // routeSingleFile dispatches a single file to the correct scanner based on extension.
-func routeSingleFile(inputPath, modelPath string) ([]models.MLResult, int64, error) {
+func routeSingleFile(inputPath string) ([]models.MLResult, int64, error) {
 	ext := strings.ToLower(filepath.Ext(inputPath))
 
 	switch ext {
 	case ".pcap":
-		return AnalyzePcapFile(inputPath, modelPath, scanner.StreamPCAP)
+		resolved := resolveModelPath(true)
+		return AnalyzePcapFile(inputPath, resolved, scanner.StreamPCAP)
 	case ".ndjson":
-		return AnalyzeFile(inputPath, modelPath, scanner.StreamNDJSON)
+		resolved := resolveModelPath(false)
+		return AnalyzeFile(inputPath, resolved, scanner.StreamNDJSON)
 	case ".json":
-		return AnalyzeFile(inputPath, modelPath, scanner.StreamJSON)
+		resolved := resolveModelPath(false)
+		return AnalyzeFile(inputPath, resolved, scanner.StreamJSON)
 	default:
 		return nil, 0, fmt.Errorf("unsupported file extension: %s", ext)
 	}
@@ -74,7 +77,7 @@ func runDirectoryPipeline(cfg *config.AppConfig) ([]models.MLResult, int64, erro
 		}
 	}
 
-	return processBatch(classified, cfg.ModelPath, totalFiles)
+	return processBatch(classified, totalFiles)
 }
 
 func classifyDirectory(dirPath string) (classifiedFiles, error) {
@@ -134,10 +137,25 @@ func confirmDirectoryParse(cf classifiedFiles) error {
 	return nil
 }
 
-func processBatch(cf classifiedFiles, modelPath string, totalFiles int) ([]models.MLResult, int64, error) {
-	detector, err := engine.NewDetector(modelPath)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed loading xgboost model: %w", err)
+func processBatch(cf classifiedFiles, totalFiles int) ([]models.MLResult, int64, error) {
+	var netflowDetector *engine.Detector
+	var pcapDetector *engine.PcapDetector
+	var err error
+
+	if len(cf.json) > 0 || len(cf.ndjson) > 0 {
+		resolved := resolveModelPath(false)
+		netflowDetector, err = engine.NewDetector(resolved)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed loading xgboost model for Netflow: %w", err)
+		}
+	}
+
+	if len(cf.pcap) > 0 {
+		resolved := resolveModelPath(true)
+		pcapDetector, err = engine.NewPcapDetector(resolved)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed loading xgboost model for PCAP: %w", err)
+		}
 	}
 
 	allFiles := make([]string, 0, totalFiles)
@@ -145,17 +163,20 @@ func processBatch(cf classifiedFiles, modelPath string, totalFiles int) ([]model
 	allFiles = append(allFiles, cf.ndjson...)
 	allFiles = append(allFiles, cf.pcap...)
 
+	var totalRecords int64
+	var allResults []models.MLResult
+
 	for i, file := range allFiles {
 		fmt.Printf("Processing file %d/%d: %s\n", i+1, totalFiles, filepath.Base(file))
 		ext := strings.ToLower(filepath.Ext(file))
 		var err error
 
 		if ext == ".pcap" {
-			_, err = ProcessPcapFile(file, detector, scanner.StreamPCAP)
+			_, err = ProcessPcapFile(file, pcapDetector, scanner.StreamPCAP)
 		} else if ext == ".json" {
-			_, err = ProcessFile(file, detector, scanner.StreamJSON)
+			_, err = ProcessFile(file, netflowDetector, scanner.StreamJSON)
 		} else if ext == ".ndjson" {
-			_, err = ProcessFile(file, detector, scanner.StreamNDJSON)
+			_, err = ProcessFile(file, netflowDetector, scanner.StreamNDJSON)
 		}
 
 		if err != nil {
@@ -163,12 +184,24 @@ func processBatch(cf classifiedFiles, modelPath string, totalFiles int) ([]model
 			continue
 		}
 
-		detector.Flush()
+		if ext == ".pcap" {
+			pcapDetector.Flush()
+		} else {
+			netflowDetector.Flush()
+		}
 		runtime.GC()
 	}
 
-	results := detector.CalculateResults()
-	return results, detector.TotalCount(), nil
+	if netflowDetector != nil {
+		allResults = append(allResults, netflowDetector.CalculateResults()...)
+		totalRecords += netflowDetector.TotalCount()
+	}
+	if pcapDetector != nil {
+		allResults = append(allResults, pcapDetector.CalculateResults()...)
+		totalRecords += pcapDetector.TotalCount()
+	}
+
+	return allResults, totalRecords, nil
 }
 
 func streamFnFor(path string) StreamFn {
@@ -176,4 +209,23 @@ func streamFnFor(path string) StreamFn {
 		return scanner.StreamJSON
 	}
 	return scanner.StreamNDJSON
+}
+
+var (
+	NetflowModelPath = "Xgboost/botnet_xgboost.json"
+	PcapModelPath    = "Xgboost/pcap_xgboost.json"
+)
+
+func resolveModelPath(isPcap bool) string {
+	if isPcap {
+		return getExistingPath(PcapModelPath)
+	}
+	return getExistingPath(NetflowModelPath)
+}
+
+func getExistingPath(path string) string {
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	return "../" + path
 }

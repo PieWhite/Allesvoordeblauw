@@ -11,16 +11,14 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 		name        string
 		args        []string
 		wantNetflow string
-		wantModel   string
 		wantOutput  string
 		wantErr     error // We use the specific error type for help checks
 		wantErrStr  string
 	}{
 		{
 			name:        "Valid: all flags and argument",
-			args:        []string{"-m", "custom_model.json", "-o", "results.txt", "data.json"},
+			args:        []string{"-o", "results.txt", "data.json"},
 			wantNetflow: "data.json",
-			wantModel:   "custom_model.json",
 			wantOutput:  "results.txt",
 			wantErr:     nil,
 		},
@@ -28,13 +26,12 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 			name:        "Valid: defaults used",
 			args:        []string{"input.json"},
 			wantNetflow: "input.json",
-			wantModel:   "../Xgboost/botnet_xgboost.json",
 			wantOutput:  "",
 			wantErr:     nil,
 		},
 		{
 			name:       "Error: missing netflow file",
-			args:       []string{"-m", "mymodel.json"},
+			args:       []string{"-o", "results.txt"},
 			wantErrStr: "you need to specify an input file",
 		},
 		{
@@ -85,9 +82,6 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 
 			if cfg.InputPath != tt.wantNetflow {
 				t.Errorf("InputPath = %q, want %q", cfg.InputPath, tt.wantNetflow)
-			}
-			if cfg.ModelPath != tt.wantModel {
-				t.Errorf("ModelPath = %q, want %q", cfg.ModelPath, tt.wantModel)
 			}
 			if cfg.OutputFile != tt.wantOutput {
 				t.Errorf("OutputFile = %q, want %q", cfg.OutputFile, tt.wantOutput)

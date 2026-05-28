@@ -147,21 +147,7 @@ func (m *Model) loadDirectory(dir string) error {
 	return nil
 }
 
-// getModelPath resolves model location dynamically.
-func getModelPath() string {
-	// Try main directory relative path
-	p1 := "../Xgboost/botnet_xgboost.json"
-	if _, err := os.Stat(p1); err == nil {
-		return p1
-	}
-	// Try root relative path
-	p2 := "./Xgboost/botnet_xgboost.json"
-	if _, err := os.Stat(p2); err == nil {
-		return p2
-	}
-	// Default fallback
-	return "../Xgboost/botnet_xgboost.json"
-}
+
 
 // getScanTotalSize calculates the total size of files to scan (supports single file or folders).
 func (m *Model) getScanTotalSize() int64 {
@@ -355,7 +341,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 					start := time.Now()
 					appConfig := &config.AppConfig{
-						ModelPath:   getModelPath(),
 						InputPath:   scanPath,
 						SkipConfirm: true,
 					}

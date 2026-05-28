@@ -92,11 +92,6 @@ func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
 	}
 }
 
-func (d *Detector) ProcessPcapRecords(records []models.PcapRecord) {
-	atomic.AddInt64(&d.TotalRecords, int64(len(records)))
-	// PCAP statistical aggregation and classification will be implemented in a subsequent phase
-}
-
 func (d *Detector) updateMaxWindowAndFlush(win int64) {
 	curr := d.currentWindow.Load()
 	for win > curr {
