@@ -33,6 +33,7 @@ type PcapIPStats struct {
 	UDPCount    int
 	ICMPCount   int
 	IGMPCount   int
+	TTLSum      int
 	HTTPCount   int
 	HTTPSCount  int
 	TelnetCount int
@@ -99,6 +100,7 @@ func (s *PcapIPStats) Update(record models.PcapRecord, isOutbound bool) {
 
 	// 2. Protocol Identification
 	s.IPvCount++ // All processed packets are IPv4
+	s.TTLSum += int(record.TTL)
 	switch record.Proto {
 	case 1:
 		s.ICMPCount++
@@ -147,13 +149,12 @@ func (s *PcapIPStats) ToPcapMLVector() []float64 {
 
 	// A. Header Length and TTL defaults
 	// Header Length: Mean transport layer header size (TCP=20, UDP=8, ICMP=8)
-	var headerSum float64
-	for _, l := range s.Lengths {
-		_ = l
-	}
-	headerSum = float64(s.TCPCount)*20.0 + float64(s.UDPCount+s.ICMPCount)*8.0
+	headerSum := float64(s.TCPCount)*20.0 + float64(s.UDPCount+s.ICMPCount)*8.0
 	avgHeaderLen := headerSum / fc
-	avgTTL := 64.0 // Mirai/Linux standard default TTL
+	avgTTL := 64.0 // fallback: Mirai/Linux standard default TTL
+	if s.PacketCount > 0 {
+		avgTTL = float64(s.TTLSum) / fc
+	}
 
 	// B. Transmission Rate
 	var rate float64

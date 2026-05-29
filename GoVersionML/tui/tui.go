@@ -374,9 +374,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						pipeline.OnProgress = old
 					}()
 
+					oldSilence := pipeline.Silence
 					pipeline.Silence = true
 					defer func() {
-						pipeline.Silence = false
+						pipeline.Silence = oldSilence
 					}()
 
 					start := time.Now()

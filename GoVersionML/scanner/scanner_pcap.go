@@ -101,9 +101,17 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 
 	magic := binary.LittleEndian.Uint32(globalHeader[0:4])
 	var byteOrder binary.ByteOrder = binary.LittleEndian
-	if magic == 0xd4c3b2a1 || magic == 0x4d3cb2a1 {
+	tsDiv := 1e6
+	switch magic {
+	case 0xa1b2c3d4: // microsecond-resolution, little-endian
+	case 0xa1b23c4d: // nanosecond-resolution, little-endian
+		tsDiv = 1e9
+	case 0xd4c3b2a1: // microsecond-resolution, big-endian
 		byteOrder = binary.BigEndian
-	} else if magic != 0xa1b2c3d4 && magic != 0xa1b23c4d {
+	case 0x4d3cb2a1: // nanosecond-resolution, big-endian
+		byteOrder = binary.BigEndian
+		tsDiv = 1e9
+	default:
 		return fmt.Errorf("unsupported or invalid pcap magic number: 0x%x", magic)
 	}
 
@@ -182,6 +190,7 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 			continue
 		}
 
+		ttl := ipHeader[8]
 		proto := int(ipHeader[9])
 		srcIPBytes := ipHeader[12:16]
 		dstIPBytes := ipHeader[16:20]
@@ -204,6 +213,8 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 			}
 			srcPort = int(binary.BigEndian.Uint16(transportHeader[0:2]))
 			dstPort = int(binary.BigEndian.Uint16(transportHeader[2:4]))
+		} else if proto == 1 || proto == 2 { // ICMP / IGMP — no ports, emit with 0
+			srcPort, dstPort = 0, 0
 		} else {
 			// Skip other transport protocols as they don't carry port stats
 			continue
@@ -213,13 +224,14 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 		dstIPStr := getIPStr(dstIPBytes)
 
 		batch.Records = append(batch.Records, models.PcapRecord{
-			Timestamp: float64(tsSec) + float64(tsUsec)/1e6,
+			Timestamp: float64(tsSec) + float64(tsUsec)/tsDiv,
 			SrcIP:     srcIPStr,
 			DstIP:     dstIPStr,
 			SrcPort:   srcPort,
 			DstPort:   dstPort,
 			Length:    int(origLen),
 			Proto:     proto,
+			TTL:       ttl,
 			TCPFlags:  tcpFlags,
 		})
 

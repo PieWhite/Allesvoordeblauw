@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"log"
+	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -100,22 +101,34 @@ func (d *PcapDetector) evaluateBatch(statsBatch []*PcapIPStats) {
 
 	vectors := make([]mat.SparseVector, len(statsBatch))
 
-	// Concurrently calculate 39 features in parallel across all CPU cores
-	var wg sync.WaitGroup
-	for idx, stats := range statsBatch {
-		wg.Add(1)
-		go func(i int, s *PcapIPStats) {
-			defer wg.Done()
-			features := s.ToPcapMLVector()
-			sv := make(mat.SparseVector)
-			for fIdx, val := range features {
-				if val != 0 {
-					sv[fIdx] = float32(val)
-				}
-			}
-			vectors[i] = sv
-		}(idx, stats)
+	// Worker pool: cap concurrency to NumCPU to avoid scheduler flooding on large batches
+	type job struct {
+		idx   int
+		stats *PcapIPStats
 	}
+	numWorkers := runtime.NumCPU()
+	jobs := make(chan job, len(statsBatch))
+	var wg sync.WaitGroup
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				features := j.stats.ToPcapMLVector()
+				sv := make(mat.SparseVector)
+				for fIdx, val := range features {
+					if val != 0 {
+						sv[fIdx] = float32(val)
+					}
+				}
+				vectors[j.idx] = sv
+			}
+		}()
+	}
+	for idx, stats := range statsBatch {
+		jobs <- job{idx: idx, stats: stats}
+	}
+	close(jobs)
 	wg.Wait()
 
 	input := mat.SparseMatrix{
