@@ -40,8 +40,8 @@ func BenchmarkEndToEnd(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		// Run with the test file and model, discarding normal output
-		err := run([]string{"-m", modelPath, testFile})
+		// Run with the test file, discarding normal output
+		err := run([]string{testFile})
 		if err != nil {
 			b.Fatalf("run failed during benchmark: %v", err)
 		}

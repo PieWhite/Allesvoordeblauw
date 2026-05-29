@@ -38,7 +38,7 @@ func TestRun_InvalidCPUProfile(t *testing.T) {
 
 func TestRun_PipelineFailure(t *testing.T) {
 	// A file that does not exist should cause pipeline to fail
-	err := run([]string{"-m", "dummy_model.json", "nonexistent_input.json"})
+	err := run([]string{"nonexistent_input.json"})
 	if err == nil {
 		t.Error("expected pipeline to fail for nonexistent file, got nil")
 	}
@@ -117,7 +117,6 @@ func TestRun_Success(t *testing.T) {
 	}
 
 	args := []string{
-		"-m", modelPath,
 		"-cpuprofile", cpuProf,
 		"-memprofile", memProf,
 		"-o", outTxt,
@@ -158,7 +157,6 @@ func TestRun_InvalidMemProfile(t *testing.T) {
 	badMemProf := filepath.Join(tmpDir, "does_not_exist", "mem.prof")
 
 	args := []string{
-		"-m", modelPath,
 		"-memprofile", badMemProf,
 		testFile,
 	}

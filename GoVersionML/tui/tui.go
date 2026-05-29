@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,12 +11,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"goversion/config"
 	"goversion/models"
 	"goversion/pipeline"
 	"goversion/reporter"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type sessionState int
@@ -70,14 +73,17 @@ type Model struct {
 	fileCursor int
 
 	// Scan selection fields
-	scanPath      string
-	confirmedScan bool
+	scanPath        string
+	confirmedScan   bool
+	scanJSONCount   int
+	scanNDJSONCount int
+	scanPCAPCount   int
 
 	// Background scanning channels
 	sharedBytesRead *int64
-	finishedChan   chan scanFinishedMsg
-	scanTotalBytes int64
-	scanReadBytes  int64
+	finishedChan    chan scanFinishedMsg
+	scanTotalBytes  int64
+	scanReadBytes   int64
 
 	// Scan results fields
 	scanResults  []models.MLResult
@@ -147,22 +153,6 @@ func (m *Model) loadDirectory(dir string) error {
 	return nil
 }
 
-// getModelPath resolves model location dynamically.
-func getModelPath() string {
-	// Try main directory relative path
-	p1 := "../Xgboost/botnet_xgboost.json"
-	if _, err := os.Stat(p1); err == nil {
-		return p1
-	}
-	// Try root relative path
-	p2 := "./Xgboost/botnet_xgboost.json"
-	if _, err := os.Stat(p2); err == nil {
-		return p2
-	}
-	// Default fallback
-	return "../Xgboost/botnet_xgboost.json"
-}
-
 // getScanTotalSize calculates the total size of files to scan (supports single file or folders).
 func (m *Model) getScanTotalSize() int64 {
 	info, err := os.Stat(m.scanPath)
@@ -177,7 +167,7 @@ func (m *Model) getScanTotalSize() int64 {
 	_ = filepath.WalkDir(m.scanPath, func(path string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			ext := strings.ToLower(filepath.Ext(path))
-			if ext == ".json" || ext == ".ndjson" {
+			if ext == ".json" || ext == ".ndjson" || ext == ".pcap" {
 				if fInfo, fErr := d.Info(); fErr == nil {
 					total += fInfo.Size()
 				}
@@ -188,7 +178,41 @@ func (m *Model) getScanTotalSize() int64 {
 	return total
 }
 
+// getScanFileCounts walks the target path and counts JSON, NDJSON, and PCAP files.
+func (m *Model) getScanFileCounts() (jsonCount, ndjsonCount, pcapCount int) {
+	info, err := os.Stat(m.scanPath)
+	if err != nil {
+		return 0, 0, 0
+	}
+	if !info.IsDir() {
+		ext := strings.ToLower(filepath.Ext(m.scanPath))
+		switch ext {
+		case ".json":
+			return 1, 0, 0
+		case ".ndjson":
+			return 0, 1, 0
+		case ".pcap":
+			return 0, 0, 1
+		}
+		return 0, 0, 0
+	}
 
+	_ = filepath.WalkDir(m.scanPath, func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			ext := strings.ToLower(filepath.Ext(path))
+			switch ext {
+			case ".json":
+				jsonCount++
+			case ".ndjson":
+				ndjsonCount++
+			case ".pcap":
+				pcapCount++
+			}
+		}
+		return nil
+	})
+	return
+}
 
 // Update handles message updates in the Bubble Tea loop.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -242,6 +266,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == stateResults {
 				m.state = stateFileBrowser
 				m.scanPath = ""
+				m.scanJSONCount = 0
+				m.scanNDJSONCount = 0
+				m.scanPCAPCount = 0
 				m.scanResults = nil
 				m.totalRecords = 0
 				m.scanError = nil
@@ -250,6 +277,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == stateConfirmSelection {
 				m.state = stateFileBrowser
 				m.scanPath = ""
+				m.scanJSONCount = 0
+				m.scanNDJSONCount = 0
+				m.scanPCAPCount = 0
 				return m, nil
 			}
 			if m.state == stateFileBrowser {
@@ -305,14 +335,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.selectedOption == 0 {
 						if !entry.IsDir {
 							ext := strings.ToLower(filepath.Ext(entry.Name))
-							if ext == ".json" || ext == ".ndjson" {
+							if ext == ".json" || ext == ".ndjson" || ext == ".pcap" {
 								m.scanPath = filepath.Join(m.currentDir, entry.Name)
+								m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount = m.getScanFileCounts()
 								m.state = stateConfirmSelection
 							}
 						}
 					} else if m.selectedOption == 1 {
 						if entry.IsDir && entry.Name != ".." {
 							m.scanPath = filepath.Join(m.currentDir, entry.Name)
+							m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount = m.getScanFileCounts()
 							m.state = stateConfirmSelection
 						}
 					}
@@ -353,9 +385,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						pipeline.OnProgress = old
 					}()
 
+					oldSilence := pipeline.Silence
+					pipeline.Silence = true
+					defer func() {
+						pipeline.Silence = oldSilence
+					}()
+
 					start := time.Now()
 					appConfig := &config.AppConfig{
-						ModelPath:   getModelPath(),
 						InputPath:   scanPath,
 						SkipConfirm: true,
 					}
@@ -378,6 +415,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "n", "N":
 				m.state = stateFileBrowser
 				m.scanPath = ""
+				m.scanJSONCount = 0
+				m.scanNDJSONCount = 0
+				m.scanPCAPCount = 0
 			}
 		} else if m.state == stateResults {
 			switch msg.String() {
@@ -530,8 +570,8 @@ func (m Model) View() string {
 				icon := "📁"
 				if !entry.IsDir {
 					ext := strings.ToLower(filepath.Ext(entry.Name))
-					if ext == ".json" || ext == ".ndjson" {
-						icon = "📊" // Distinct icon for json/ndjson files
+					if ext == ".json" || ext == ".ndjson" || ext == ".pcap" {
+						icon = "📊" // Distinct icon for json/ndjson/pcap files
 					} else {
 						icon = "📄"
 					}
@@ -553,9 +593,9 @@ func (m Model) View() string {
 
 				var formattedLine string
 				if m.fileCursor == i {
-					formattedLine = selectedLineStyle.Render("  > "+lineContent)
+					formattedLine = selectedLineStyle.Render("  > " + lineContent)
 				} else {
-					formattedLine = "    "+lineContent
+					formattedLine = "    " + lineContent
 				}
 				lines = append(lines, formattedLine)
 			}
@@ -629,6 +669,14 @@ func (m Model) View() string {
 		}
 		sb.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true).Render(promptText) + "\n\n")
 
+		if m.selectedOption == 1 {
+			statsStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8BE9FD"))
+			sb.WriteString("  Detected in folder:\n")
+			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 JSON files:   %d", m.scanJSONCount)) + "\n")
+			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 NDJSON files: %d", m.scanNDJSONCount)) + "\n")
+			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 PCAP files:   %d", m.scanPCAPCount)) + "\n\n")
+		}
+
 		// Stylized choices
 		yesStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Bold(true)
 		noStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true)
@@ -644,6 +692,11 @@ func (m Model) View() string {
 
 		fileName := filepath.Base(m.scanPath)
 		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Scanning Target: %s", fileName)) + "\n")
+
+		if m.selectedOption == 1 {
+			sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Contains: %d JSON, %d NDJSON, %d PCAP files", m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount)) + "\n")
+		}
+
 		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Total Scan Size: %s", formatSize(m.scanTotalBytes))) + "\n")
 		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Bytes Processed: %s", formatSize(m.scanReadBytes))) + "\n\n")
 
@@ -667,7 +720,7 @@ func (m Model) View() string {
 		remaining := barLength - completed
 
 		greenStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Bold(true) // Dracula Green
-		grayStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4"))           // Dracula Dark Gray
+		grayStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4"))             // Dracula Dark Gray
 
 		bar := "[" + greenStyle.Render(strings.Repeat("█", completed)) + grayStyle.Render(strings.Repeat("░", remaining)) + "]"
 		pctStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6")).Bold(true)
@@ -767,7 +820,7 @@ func (m Model) View() string {
 		var visibleLines []string
 		logLineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F8F8F2"))
 		for i := m.logScrollRow; i < endIndex; i++ {
-			visibleLines = append(visibleLines, "  " + logLineStyle.Render(lines[i]))
+			visibleLines = append(visibleLines, "  "+logLineStyle.Render(lines[i]))
 		}
 
 		if len(lines) > maxLinesToShow {
@@ -859,7 +912,7 @@ func drawWithScrollbar(items []string, visibleStart, visibleCount, totalItems in
 	}
 
 	scrollbarColor := lipgloss.NewStyle().Foreground(lipgloss.Color("#BD93F9")) // Purple track
-	thumbStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6"))      // Pink thumb
+	thumbStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6"))     // Pink thumb
 
 	res := make([]string, len(items))
 	for i := 0; i < len(items); i++ {
@@ -896,6 +949,11 @@ func formatSize(b int64) string {
 
 // Start launches the Bubble Tea program and returns the confirmed path to scan.
 func Start() (string, error) {
+	// Mute global log outputs to prevent TUI terminal scrolling/drawing corruption
+	originalLogOutput := log.Writer()
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(originalLogOutput)
+
 	m := NewModel()
 	p := tea.NewProgram(m)
 	finalModel, err := p.Run()

@@ -36,7 +36,7 @@ func NewDetector(modelPath string) (*Detector, error) {
 		return nil, fmt.Errorf("failed to load model: %w", err)
 	}
 
-	explainer, err := NewExplainer(modelPath)
+	explainer, err := NewExplainer(modelPath, FeatureNames)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize explainer: %w", err)
 	}
