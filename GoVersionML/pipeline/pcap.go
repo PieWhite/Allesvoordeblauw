@@ -34,7 +34,7 @@ func AnalyzePcapFile(inputPath string, modelPath string, stream PcapStreamFn) ([
 	return results, detector.TotalCount(), nil
 }
 
-// ProcessPcapFile opens the raw PCAP file and streams it using the shared ProgressReader from netflow.go
+// ProcessPcapFile opens the raw PCAP file and streams it using the shared ProgressReader
 func ProcessPcapFile(inputPath string, processor PcapRecordProcessor, stream PcapStreamFn) (int64, error) {
 	if stream == nil {
 		return 0, fmt.Errorf("stream function cannot be nil")
@@ -47,9 +47,9 @@ func ProcessPcapFile(inputPath string, processor PcapRecordProcessor, stream Pca
 	defer file.Close()
 
 	var reader io.Reader = file
-	progressCallback := OnProgress // Reuses thread-safe progress callback from netflow.go
+	progressCallback := OnProgress // Reuses thread-safe progress callback from pipeline/common.go
 	if progressCallback != nil {
-		reader = &ProgressReader{ // Reuses ProgressReader struct from netflow.go (zero duplication)
+		reader = &ProgressReader{ // Reuses ProgressReader struct from pipeline/pipeline/common.go
 			r:          file,
 			OnProgress: progressCallback,
 		}

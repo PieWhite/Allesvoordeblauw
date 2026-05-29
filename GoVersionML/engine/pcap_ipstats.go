@@ -110,6 +110,8 @@ func (s *PcapIPStats) Update(record models.PcapRecord, isOutbound bool) {
 		s.TCPCount++
 	case 17:
 		s.UDPCount++
+	case 2054: // ARP (EtherType 0x0806 used as sentinel)
+		s.ARPCount++
 	}
 
 	// 3. Port/Protocol Application Layer Identification

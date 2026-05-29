@@ -107,6 +107,9 @@ func (d *PcapDetector) evaluateBatch(statsBatch []*PcapIPStats) {
 		stats *PcapIPStats
 	}
 	numWorkers := runtime.NumCPU()
+	if numWorkers > len(statsBatch) {
+		numWorkers = len(statsBatch)
+	}
 	jobs := make(chan job, len(statsBatch))
 	var wg sync.WaitGroup
 	for w := 0; w < numWorkers; w++ {

@@ -122,6 +122,10 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 
 	batch := pcapBatchPool.Get().(*PcapBatch)
 	batch.Records = batch.Records[:0]
+	defer func() {
+		batch.Records = batch.Records[:0]
+		pcapBatchPool.Put(batch)
+	}()
 
 	// Thread-local IP string cache to prevent unsafe string allocation and arena memory corruption
 	ipCache := make(map[uint32]string, 1024)
@@ -171,7 +175,31 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 		}
 
 		etherType := binary.BigEndian.Uint16(data[12:14])
-		if etherType != 0x0800 { // Only support IPv4 packets for ML stats
+
+		// ARP (0x0806): extract sender IP from ARP payload and emit a record so
+		// ARPCount is populated in the feature vector (feature #26).
+		// LLC frames (etherType ≤ 0x05DC) carry no IP layer and cannot be attributed
+		// to a source IP, so they remain zero — acceptable given their rarity in IoT captures.
+		if etherType == 0x0806 {
+			if len(data) < 42 { // 14 (Ethernet) + 28 (ARP minimum)
+				continue
+			}
+			senderIPStr := getIPStr(data[22:26])
+			batch.Records = append(batch.Records, models.PcapRecord{
+				Timestamp: float64(tsSec) + float64(tsUsec)/tsDiv,
+				SrcIP:     senderIPStr,
+				DstIP:     getIPStr(data[32:36]),
+				Length:    int(origLen),
+				Proto:     2054, // ARP EtherType used as sentinel (no IP protocol uses this)
+			})
+			if len(batch.Records) >= 1000 {
+				processFn(batch.Records)
+				batch.Records = batch.Records[:0]
+			}
+			continue
+		}
+
+		if etherType != 0x0800 { // Only support IPv4 packets for remaining ML stats
 			continue
 		}
 
@@ -244,10 +272,6 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 	if len(batch.Records) > 0 {
 		processFn(batch.Records)
 	}
-
-	// Reset and put batch back into pool
-	batch.Records = batch.Records[:0]
-	pcapBatchPool.Put(batch)
 
 	return nil
 }

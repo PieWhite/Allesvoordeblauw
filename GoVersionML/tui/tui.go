@@ -73,8 +73,11 @@ type Model struct {
 	fileCursor int
 
 	// Scan selection fields
-	scanPath      string
-	confirmedScan bool
+	scanPath        string
+	confirmedScan   bool
+	scanJSONCount   int
+	scanNDJSONCount int
+	scanPCAPCount   int
 
 	// Background scanning channels
 	sharedBytesRead *int64
@@ -263,6 +266,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == stateResults {
 				m.state = stateFileBrowser
 				m.scanPath = ""
+				m.scanJSONCount = 0
+				m.scanNDJSONCount = 0
+				m.scanPCAPCount = 0
 				m.scanResults = nil
 				m.totalRecords = 0
 				m.scanError = nil
@@ -271,6 +277,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == stateConfirmSelection {
 				m.state = stateFileBrowser
 				m.scanPath = ""
+				m.scanJSONCount = 0
+				m.scanNDJSONCount = 0
+				m.scanPCAPCount = 0
 				return m, nil
 			}
 			if m.state == stateFileBrowser {
@@ -328,12 +337,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							ext := strings.ToLower(filepath.Ext(entry.Name))
 							if ext == ".json" || ext == ".ndjson" || ext == ".pcap" {
 								m.scanPath = filepath.Join(m.currentDir, entry.Name)
+								m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount = m.getScanFileCounts()
 								m.state = stateConfirmSelection
 							}
 						}
 					} else if m.selectedOption == 1 {
 						if entry.IsDir && entry.Name != ".." {
 							m.scanPath = filepath.Join(m.currentDir, entry.Name)
+							m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount = m.getScanFileCounts()
 							m.state = stateConfirmSelection
 						}
 					}
@@ -404,6 +415,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "n", "N":
 				m.state = stateFileBrowser
 				m.scanPath = ""
+				m.scanJSONCount = 0
+				m.scanNDJSONCount = 0
+				m.scanPCAPCount = 0
 			}
 		} else if m.state == stateResults {
 			switch msg.String() {
@@ -656,12 +670,11 @@ func (m Model) View() string {
 		sb.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true).Render(promptText) + "\n\n")
 
 		if m.selectedOption == 1 {
-			jsonCount, ndjsonCount, pcapCount := m.getScanFileCounts()
 			statsStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8BE9FD"))
 			sb.WriteString("  Detected in folder:\n")
-			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 JSON files:   %d", jsonCount)) + "\n")
-			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 NDJSON files: %d", ndjsonCount)) + "\n")
-			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 PCAP files:   %d", pcapCount)) + "\n\n")
+			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 JSON files:   %d", m.scanJSONCount)) + "\n")
+			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 NDJSON files: %d", m.scanNDJSONCount)) + "\n")
+			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 PCAP files:   %d", m.scanPCAPCount)) + "\n\n")
 		}
 
 		// Stylized choices
@@ -681,8 +694,7 @@ func (m Model) View() string {
 		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Scanning Target: %s", fileName)) + "\n")
 
 		if m.selectedOption == 1 {
-			jsonCount, ndjsonCount, pcapCount := m.getScanFileCounts()
-			sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Contains: %d JSON, %d NDJSON, %d PCAP files", jsonCount, ndjsonCount, pcapCount)) + "\n")
+			sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Contains: %d JSON, %d NDJSON, %d PCAP files", m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount)) + "\n")
 		}
 
 		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Total Scan Size: %s", formatSize(m.scanTotalBytes))) + "\n")
