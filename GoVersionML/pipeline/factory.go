@@ -67,7 +67,7 @@ func runDirectoryPipeline(cfg *config.AppConfig) ([]models.MLResult, int64, erro
 		return nil, 0, fmt.Errorf("no .json, .ndjson or .pcap files found in directory")
 	}
 
-	if len(classified.unsupported) > 0 {
+	if len(classified.unsupported) > 0 && !Silence {
 		fmt.Printf("Unsupported file types detected (%d files). These will be skipped.\n", len(classified.unsupported))
 	}
 
@@ -111,18 +111,18 @@ func confirmDirectoryParse(cf classifiedFiles) error {
 	jsonCount := len(cf.json)
 	ndjsonCount := len(cf.ndjson)
 	pcapCount := len(cf.pcap)
- 
- 	switch {
+
+	switch {
 	case jsonCount > 0 && ndjsonCount == 0 && pcapCount == 0:
 		fmt.Printf("The following file type has been detected: json (%d files). Continue with json parsing? [y/N]: ", jsonCount)
 	case ndjsonCount > 0 && jsonCount == 0 && pcapCount == 0:
 		fmt.Printf("The following file type has been detected: ndjson (%d files). Continue with ndjson parsing? [y/N]: ", ndjsonCount)
 	case pcapCount > 0 && jsonCount == 0 && ndjsonCount == 0:
 		fmt.Printf("The following file type has been detected: pcap (%d files). Continue with pcap parsing? [y/N]: ", pcapCount)
- 	default:
+	default:
 		fmt.Printf("The following file types have been detected: json (%d files) ndjson (%d files) pcap (%d files).\n", jsonCount, ndjsonCount, pcapCount)
- 		fmt.Print("Continue parsing mixed file types (experimental)? [y/N]: ")
- 	}
+		fmt.Print("Continue parsing mixed file types (experimental)? [y/N]: ")
+	}
 
 	reader := bufio.NewReader(os.Stdin)
 	response, err := reader.ReadString('\n')
@@ -167,7 +167,9 @@ func processBatch(cf classifiedFiles, totalFiles int) ([]models.MLResult, int64,
 	var allResults []models.MLResult
 
 	for i, file := range allFiles {
-		fmt.Printf("Processing file %d/%d: %s\n", i+1, totalFiles, filepath.Base(file))
+		if !Silence {
+			fmt.Printf("Processing file %d/%d: %s\n", i+1, totalFiles, filepath.Base(file))
+		}
 		ext := strings.ToLower(filepath.Ext(file))
 		var err error
 
@@ -180,7 +182,9 @@ func processBatch(cf classifiedFiles, totalFiles int) ([]models.MLResult, int64,
 		}
 
 		if err != nil {
-			fmt.Printf("Error processing %s: %v\n", file, err)
+			if !Silence {
+				fmt.Printf("Error processing %s: %v\n", file, err)
+			}
 			continue
 		}
 
@@ -214,6 +218,7 @@ func streamFnFor(path string) StreamFn {
 var (
 	NetflowModelPath = "Xgboost/botnet_xgboost.json"
 	PcapModelPath    = "Xgboost/pcap_xgboost.json"
+	Silence          = false
 )
 
 func resolveModelPath(isPcap bool) string {

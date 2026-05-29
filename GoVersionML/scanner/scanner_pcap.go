@@ -6,16 +6,13 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"unsafe"
 
 	"goversion/models"
 )
 
-// PcapBatch pools records, their arena-allocated strings, and packet buffers together
+// PcapBatch pools records and packet buffers together
 type PcapBatch struct {
 	Records   []models.PcapRecord
-	Arena     []byte
-	Offset    int
 	PacketBuf []byte // 64 KB packet buffer to eliminate heap allocations per packet
 }
 
@@ -23,9 +20,7 @@ var pcapBatchPool = sync.Pool{
 	New: func() interface{} {
 		return &PcapBatch{
 			Records:   make([]models.PcapRecord, 0, 1000),
-			Arena:     make([]byte, 1024*1024), // 1 MB arena
-			Offset:    0,
-			PacketBuf: make([]byte, 65536),     // 64 KB preallocated
+			PacketBuf: make([]byte, 65536), // 64 KB preallocated
 		}
 	},
 }
@@ -53,11 +48,6 @@ func init() {
 		if i&0x80 != 0 { f = append(f, 'C') } // CWR
 		flagsCache[i] = string(f)
 	}
-}
-
-// unsafeString performs an allocation-free conversion from byte slice to string
-func unsafeString(b []byte) string {
-	return *(*string)(unsafe.Pointer(&b))
 }
 
 // formatIPv4 converts a 4-byte IP address to an ASCII string directly in the buffer
@@ -93,8 +83,8 @@ func formatIPv4(buf []byte, ip []byte) int {
 }
 
 // StreamPCAP parses a raw PCAP byte stream sequentially at max I/O speed, 
-// using pooled 1MB readers, static TCP flags cache, and pre-allocated packet buffers 
-// to guarantee exactly zero heap allocations.
+// using pooled 1MB readers, static TCP flags cache, and a thread-local IP string cache 
+// to guarantee exactly zero heap allocations for already-seen IPs and eliminate memory corruption.
 func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 	br := readerPool.Get().(*bufio.Reader)
 	br.Reset(stream)
@@ -124,7 +114,20 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 
 	batch := pcapBatchPool.Get().(*PcapBatch)
 	batch.Records = batch.Records[:0]
-	batch.Offset = 0
+
+	// Thread-local IP string cache to prevent unsafe string allocation and arena memory corruption
+	ipCache := make(map[uint32]string, 1024)
+	getIPStr := func(ipBytes []byte) string {
+		val := binary.BigEndian.Uint32(ipBytes)
+		if str, ok := ipCache[val]; ok {
+			return str
+		}
+		var buf [16]byte
+		n := formatIPv4(buf[:], ipBytes)
+		str := string(buf[:n])
+		ipCache[val] = str
+		return str
+	}
 
 	var packetHeader [16]byte
 
@@ -206,24 +209,8 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 			continue
 		}
 
-		// Ensure enough arena capacity exists
-		if batch.Offset+32 > len(batch.Arena) {
-			newCap := len(batch.Arena) * 2
-			newArena := make([]byte, newCap)
-			copy(newArena, batch.Arena[:batch.Offset])
-			batch.Arena = newArena
-		}
-
-		// Format IPs directly into Batch Arena (Zero Allocations!)
-		srcStart := batch.Offset
-		n1 := formatIPv4(batch.Arena[srcStart:], srcIPBytes)
-		batch.Offset += n1
-		srcIPStr := unsafeString(batch.Arena[srcStart : srcStart+n1])
-
-		dstStart := batch.Offset
-		n2 := formatIPv4(batch.Arena[dstStart:], dstIPBytes)
-		batch.Offset += n2
-		dstIPStr := unsafeString(batch.Arena[dstStart : dstStart+n2])
+		srcIPStr := getIPStr(srcIPBytes)
+		dstIPStr := getIPStr(dstIPBytes)
 
 		batch.Records = append(batch.Records, models.PcapRecord{
 			Timestamp: float64(tsSec) + float64(tsUsec)/1e6,
@@ -239,7 +226,6 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 		if len(batch.Records) >= 1000 {
 			processFn(batch.Records)
 			batch.Records = batch.Records[:0]
-			batch.Offset = 0
 		}
 	}
 
@@ -249,7 +235,6 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 
 	// Reset and put batch back into pool
 	batch.Records = batch.Records[:0]
-	batch.Offset = 0
 	pcapBatchPool.Put(batch)
 
 	return nil
