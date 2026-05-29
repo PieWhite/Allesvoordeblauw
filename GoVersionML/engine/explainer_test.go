@@ -320,3 +320,123 @@ func TestExplainer_WeightedAverage(t *testing.T) {
 		}
 	}
 }
+
+func TestExplainer_PCAPFormatting(t *testing.T) {
+	// Let's create a tree with PCAP features
+	// Index 0: Header_Length (B formatting)
+	// Index 2: Rate (pps formatting)
+	// Index 3: fin_flag_number (proportion/percentage formatting)
+	// Index 10: syn_count (integer formatting)
+	// Index 29: Tot sum (byte KB/MB/B formatting)
+	// Index 35: IAT (time/seconds formatting)
+	// Index 38: Protocol Type (protocol translation: e.g. 6.0 -> TCP)
+	trees := []ModelNode{
+		{
+			NodeID:         0,
+			Split:          "f0",
+			SplitCondition: 99999999.0,
+			Yes:            1,
+			Children: []ModelNode{
+				{NodeID: 1, Leaf: floatPtr(1.0)},
+			},
+		},
+		{
+			NodeID:         0,
+			Split:          "f2",
+			SplitCondition: 99999999.0,
+			Yes:            1,
+			Children: []ModelNode{
+				{NodeID: 1, Leaf: floatPtr(2.0)},
+			},
+		},
+		{
+			NodeID:         0,
+			Split:          "f3",
+			SplitCondition: 99999999.0,
+			Yes:            1,
+			Children: []ModelNode{
+				{NodeID: 1, Leaf: floatPtr(3.0)},
+			},
+		},
+		{
+			NodeID:         0,
+			Split:          "f10",
+			SplitCondition: 99999999.0,
+			Yes:            1,
+			Children: []ModelNode{
+				{NodeID: 1, Leaf: floatPtr(4.0)},
+			},
+		},
+		{
+			NodeID:         0,
+			Split:          "f29",
+			SplitCondition: 99999999.0,
+			Yes:            1,
+			Children: []ModelNode{
+				{NodeID: 1, Leaf: floatPtr(5.0)},
+			},
+		},
+		{
+			NodeID:         0,
+			Split:          "f35",
+			SplitCondition: 99999999.0,
+			Yes:            1,
+			Children: []ModelNode{
+				{NodeID: 1, Leaf: floatPtr(6.0)},
+			},
+		},
+		{
+			NodeID:         0,
+			Split:          "f38",
+			SplitCondition: 99999999.0,
+			Yes:            1,
+			Children: []ModelNode{
+				{NodeID: 1, Leaf: floatPtr(7.0)},
+			},
+		},
+	}
+
+	explainer := &Explainer{
+		Trees:        trees,
+		FeatureNames: PcapFeatureNames,
+	}
+
+	features := make([]float64, 39)
+	features[0] = 54.2              // Header_Length -> should show "54.2B"
+	features[2] = 2304.5            // Rate -> should show "2304.5 pps"
+	features[3] = 0.4578            // fin_flag_number -> ratio between 0 and 1, should show "45.8%"
+	features[10] = 120.0            // syn_count -> should show "120"
+	features[29] = 10.5 * 1024 * 1024 // Tot sum -> should show "10.5MB"
+	features[35] = 0.00456          // IAT -> should show "0.005s"
+	features[38] = 6.0              // Protocol Type -> should translate to "TCP"
+
+	explanation := explainer.FormatExplanation(features)
+
+	// Sort order is based on contribution weight:
+	// f38 (Protocol Type) -> 7.0
+	// f35 (IAT) -> 6.0
+	// f29 (Tot sum) -> 5.0
+	// f10 (syn_count) -> 4.0
+	// f3 (fin_flag_number) -> 3.0
+	// f2 (Rate) -> 2.0
+	// f0 (Header_Length) -> 1.0
+	// Explainer shows top 4 features (limit 4).
+
+	if !strings.Contains(explanation, "Protocol Type (TCP)") {
+		t.Errorf("expected Protocol Type TCP formatting, got: %s", explanation)
+	}
+	if !strings.Contains(explanation, "IAT (0.005s)") {
+		t.Errorf("expected IAT formatting, got: %s", explanation)
+	}
+	if !strings.Contains(explanation, "Tot sum (10.5MB)") {
+		t.Errorf("expected Tot sum formatting, got: %s", explanation)
+	}
+	if !strings.Contains(explanation, "syn_count (120)") {
+		t.Errorf("expected syn_count formatting, got: %s", explanation)
+	}
+
+	// Verify limit works and lower contribution ones aren't in explanation
+	if strings.Contains(explanation, "Header_Length") {
+		t.Errorf("expected Header_Length to be excluded due to top 4 limit, got: %s", explanation)
+	}
+}

@@ -21,6 +21,7 @@ type PcapDetector struct {
 
 	maxProbs      map[string]float64
 	maxFeatures   map[string][]float64
+	explainer     *Explainer
 	probMutex     sync.Mutex
 	currentWindow atomic.Int64
 }
@@ -31,11 +32,17 @@ func NewPcapDetector(modelPath string) (*PcapDetector, error) {
 		return nil, fmt.Errorf("failed to load PCAP model: %w", err)
 	}
 
+	explainer, err := NewExplainer(modelPath, PcapFeatureNames)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize PCAP explainer: %w", err)
+	}
+
 	return &PcapDetector{
 		pcapAggregator: NewPcapAggregator(),
 		model:          loadedModel,
 		maxProbs:       make(map[string]float64),
 		maxFeatures:    make(map[string][]float64),
+		explainer:      explainer,
 	}, nil
 }
 
@@ -158,10 +165,17 @@ func (d *PcapDetector) formatResults(probs map[string]float64) []models.MLResult
 	const threshold = 0.50
 	results := make([]models.MLResult, 0, len(probs))
 	for ip, prob := range probs {
+		var expl string
+		if prob > threshold && d.explainer != nil {
+			if feats, ok := d.maxFeatures[ip]; ok {
+				expl = d.explainer.FormatExplanation(feats)
+			}
+		}
 		results = append(results, models.MLResult{
 			IP:          ip,
 			Probability: prob * 100.0,
 			IsBotnet:    prob > threshold,
+			Explanation: expl,
 		})
 	}
 	return results

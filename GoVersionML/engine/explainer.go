@@ -32,6 +32,49 @@ var FeatureNames = []string{
 	"iat_cv",                 // f20
 }
 
+// PcapFeatureNames maps index f0 through f38 back to their PCAP human-readable names.
+var PcapFeatureNames = []string{
+	"Header_Length",    // f0
+	"Time_To_Live",     // f1
+	"Rate",             // f2
+	"fin_flag_number",  // f3
+	"syn_flag_number",  // f4
+	"rst_flag_number",  // f5
+	"psh_flag_number",  // f6
+	"ack_flag_number",  // f7
+	"ece_flag_number",  // f8
+	"cwr_flag_number",  // f9
+	"syn_count",        // f10
+	"ack_count",        // f11
+	"fin_count",        // f12
+	"rst_count",        // f13
+	"IGMP",             // f14
+	"HTTPS",            // f15
+	"HTTP",             // f16
+	"Telnet",           // f17
+	"DNS",              // f18
+	"SMTP",             // f19
+	"SSH",              // f20
+	"IRC",              // f21
+	"TCP",              // f22
+	"UDP",              // f23
+	"DHCP",             // f24
+	"ARP",              // f25
+	"ICMP",             // f26
+	"IPv",              // f27
+	"LLC",              // f28
+	"Tot sum",          // f29
+	"Min",              // f30
+	"Max",              // f31
+	"AVG",              // f32
+	"Std",              // f33
+	"Tot size",         // f34
+	"IAT",              // f35
+	"Number",           // f36
+	"Variance",         // f37
+	"Protocol Type",    // f38
+}
+
 type ModelNode struct {
 	NodeID         int         `json:"nodeid"`
 	Depth          int         `json:"depth"`
@@ -45,10 +88,11 @@ type ModelNode struct {
 }
 
 type Explainer struct {
-	Trees []ModelNode
+	Trees        []ModelNode
+	FeatureNames []string
 }
 
-func NewExplainer(modelPath string) (*Explainer, error) {
+func NewExplainer(modelPath string, featureNames []string) (*Explainer, error) {
 	data, err := os.ReadFile(modelPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read model file: %w", err)
@@ -60,7 +104,8 @@ func NewExplainer(modelPath string) (*Explainer, error) {
 	}
 
 	return &Explainer{
-		Trees: trees,
+		Trees:        trees,
+		FeatureNames: featureNames,
 	}, nil
 }
 
@@ -72,7 +117,11 @@ type FeatureContribution struct {
 }
 
 func (e *Explainer) Explain(features []float64) []FeatureContribution {
-	contributions := make([]float64, len(FeatureNames))
+	featureNames := e.FeatureNames
+	if len(featureNames) == 0 {
+		featureNames = FeatureNames
+	}
+	contributions := make([]float64, len(featureNames))
 
 	for _, tree := range e.Trees {
 		e.traceTree(tree, features, &contributions)
@@ -85,9 +134,15 @@ func (e *Explainer) Explain(features []float64) []FeatureContribution {
 			if idx < len(features) {
 				featVal = features[idx]
 			}
+			var name string
+			if idx < len(featureNames) {
+				name = featureNames[idx]
+			} else {
+				name = fmt.Sprintf("f%d", idx)
+			}
 			results = append(results, FeatureContribution{
 				Index:        idx,
-				Name:         FeatureNames[idx],
+				Name:         name,
 				Value:        featVal,
 				Contribution: val,
 			})
@@ -163,9 +218,13 @@ func (e *Explainer) FormatExplanation(features []float64) string {
 		switch c.Name {
 		case "pct_tcp", "pct_udp", "pct_icmp", "pct_well_known_ports", "pct_high_ports", "pct_syn_only", "pct_rst":
 			valStr = fmt.Sprintf("%.1f%%", c.Value)
-		case "flow_count", "unique_dst_ips", "unique_dst_ports", "total_packets":
+		case "fin_flag_number", "syn_flag_number", "rst_flag_number", "psh_flag_number", "ack_flag_number", "ece_flag_number", "cwr_flag_number",
+			"IGMP", "HTTPS", "HTTP", "Telnet", "DNS", "SMTP", "SSH", "IRC", "TCP", "UDP", "DHCP", "ARP", "ICMP", "IPv", "LLC":
+			valStr = fmt.Sprintf("%.1f%%", c.Value*100.0)
+		case "flow_count", "unique_dst_ips", "unique_dst_ports", "total_packets",
+			"syn_count", "ack_count", "fin_count", "rst_count", "Number", "Time_To_Live":
 			valStr = fmt.Sprintf("%.0f", c.Value)
-		case "total_bytes":
+		case "total_bytes", "Tot sum":
 			if c.Value >= 1024*1024 {
 				valStr = fmt.Sprintf("%.1fMB", c.Value/(1024*1024))
 			} else if c.Value >= 1024 {
@@ -173,8 +232,25 @@ func (e *Explainer) FormatExplanation(features []float64) string {
 			} else {
 				valStr = fmt.Sprintf("%.0fB", c.Value)
 			}
-		case "avg_duration", "iat_mean":
+		case "avg_duration", "iat_mean", "IAT":
 			valStr = fmt.Sprintf("%.3fs", c.Value)
+		case "Header_Length", "Min", "Max", "AVG", "Tot size":
+			valStr = fmt.Sprintf("%.1fB", c.Value)
+		case "Rate":
+			valStr = fmt.Sprintf("%.1f pps", c.Value)
+		case "Protocol Type":
+			switch int(c.Value) {
+			case 6:
+				valStr = "TCP"
+			case 17:
+				valStr = "UDP"
+			case 1:
+				valStr = "ICMP"
+			case 2:
+				valStr = "IGMP"
+			default:
+				valStr = fmt.Sprintf("%.0f", c.Value)
+			}
 		default:
 			valStr = fmt.Sprintf("%.2f", c.Value)
 		}
