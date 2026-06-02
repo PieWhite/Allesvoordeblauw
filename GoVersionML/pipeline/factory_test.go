@@ -161,6 +161,16 @@ func TestConfirmDirectoryParseMixedFlow(t *testing.T) {
 			t.Fatalf("expected cancellation error, got %v", err)
 		}
 	})
+
+	t.Run("AcceptCSVOnly", func(t *testing.T) {
+		mockStdinWithInput(t, "yes\n")
+		cfCSV := classifiedFiles{
+			csv: []string{"a.csv"},
+		}
+		if err := confirmDirectoryParse(cfCSV); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
 }
 
 func TestProcessBatchErrorHandling(t *testing.T) {
@@ -180,6 +190,26 @@ func TestProcessBatchErrorHandling(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "failed loading xgboost model") {
 		t.Fatalf("expected wrapped model load error, got %v", err)
+	}
+}
+
+func TestProcessBatchCSVErrorHandling(t *testing.T) {
+	cf := classifiedFiles{
+		csv: []string{"a.csv"},
+	}
+
+	originalNetflow := NetflowModelPath
+	NetflowModelPath = "missing-model.json"
+	t.Cleanup(func() {
+		NetflowModelPath = originalNetflow
+	})
+
+	_, _, err := processBatch(cf, 1)
+	if err == nil {
+		t.Fatal("expected model loading error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed loading xgboost model for Netflow") {
+		t.Fatalf("expected wrapped Netflow model load error, got %v", err)
 	}
 }
 

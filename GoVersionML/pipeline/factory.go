@@ -18,6 +18,7 @@ import (
 type classifiedFiles struct {
 	json        []string
 	ndjson      []string
+	csv         []string
 	pcap        []string
 	unsupported []string
 }
@@ -51,6 +52,9 @@ func routeSingleFile(inputPath string) ([]models.MLResult, int64, error) {
 	case ".json":
 		resolved := resolveModelPath(false)
 		return AnalyzeFile(inputPath, resolved, scanner.StreamJSON)
+	case ".csv":
+		resolved := resolveModelPath(false)
+		return AnalyzeFile(inputPath, resolved, scanner.StreamCSV)
 	default:
 		return nil, 0, fmt.Errorf("unsupported file extension: %s", ext)
 	}
@@ -62,9 +66,9 @@ func runDirectoryPipeline(cfg *config.AppConfig) ([]models.MLResult, int64, erro
 		return nil, 0, fmt.Errorf("error walking directory: %w", err)
 	}
 
-	totalFiles := len(classified.json) + len(classified.ndjson) + len(classified.pcap)
+	totalFiles := len(classified.json) + len(classified.ndjson) + len(classified.pcap) + len(classified.csv)
 	if totalFiles == 0 {
-		return nil, 0, fmt.Errorf("no .json, .ndjson or .pcap files found in directory")
+		return nil, 0, fmt.Errorf("no .json, .ndjson, .csv or .pcap files found in directory")
 	}
 
 	if len(classified.unsupported) > 0 && !Silence {
@@ -98,6 +102,8 @@ func classifyDirectory(dirPath string) (classifiedFiles, error) {
 			cf.ndjson = append(cf.ndjson, path)
 		case ".pcap":
 			cf.pcap = append(cf.pcap, path)
+		case ".csv":
+			cf.csv = append(cf.csv, path)
 		default:
 			cf.unsupported = append(cf.unsupported, path)
 		}
@@ -111,16 +117,20 @@ func confirmDirectoryParse(cf classifiedFiles) error {
 	jsonCount := len(cf.json)
 	ndjsonCount := len(cf.ndjson)
 	pcapCount := len(cf.pcap)
+	csvCount := len(cf.csv)
 
 	switch {
-	case jsonCount > 0 && ndjsonCount == 0 && pcapCount == 0:
+	case jsonCount > 0 && ndjsonCount == 0 && pcapCount == 0 && csvCount == 0:
 		fmt.Printf("The following file type has been detected: json (%d files). Continue with json parsing? [y/N]: ", jsonCount)
-	case ndjsonCount > 0 && jsonCount == 0 && pcapCount == 0:
+	case ndjsonCount > 0 && jsonCount == 0 && pcapCount == 0 && csvCount == 0:
 		fmt.Printf("The following file type has been detected: ndjson (%d files). Continue with ndjson parsing? [y/N]: ", ndjsonCount)
-	case pcapCount > 0 && jsonCount == 0 && ndjsonCount == 0:
+	case pcapCount > 0 && jsonCount == 0 && ndjsonCount == 0 && csvCount == 0:
 		fmt.Printf("The following file type has been detected: pcap (%d files). Continue with pcap parsing? [y/N]: ", pcapCount)
+	case csvCount > 0 && jsonCount == 0 && ndjsonCount == 0 && pcapCount == 0:
+		fmt.Printf("The following file type has been detected: csv (%d files). Continue with csv parsing? [y/N]: ", csvCount)
+
 	default:
-		fmt.Printf("The following file types have been detected: json (%d files) ndjson (%d files) pcap (%d files).\n", jsonCount, ndjsonCount, pcapCount)
+		fmt.Printf("The following file types have been detected: json (%d files) ndjson (%d files) pcap (%d files) csv (%d files).\n", jsonCount, ndjsonCount, pcapCount, csvCount)
 		fmt.Print("Continue parsing mixed file types (experimental)? [y/N]: ")
 	}
 
@@ -142,7 +152,7 @@ func processBatch(cf classifiedFiles, totalFiles int) ([]models.MLResult, int64,
 	var pcapDetector *engine.PcapDetector
 	var err error
 
-	if len(cf.json) > 0 || len(cf.ndjson) > 0 {
+	if len(cf.json) > 0 || len(cf.ndjson) > 0 || len(cf.csv) > 0 {
 		resolved := resolveModelPath(false)
 		netflowDetector, err = engine.NewDetector(resolved)
 		if err != nil {
@@ -162,6 +172,7 @@ func processBatch(cf classifiedFiles, totalFiles int) ([]models.MLResult, int64,
 	allFiles = append(allFiles, cf.json...)
 	allFiles = append(allFiles, cf.ndjson...)
 	allFiles = append(allFiles, cf.pcap...)
+	allFiles = append(allFiles, cf.csv...)
 
 	var totalRecords int64
 	var allResults []models.MLResult
@@ -175,6 +186,8 @@ func processBatch(cf classifiedFiles, totalFiles int) ([]models.MLResult, int64,
 
 		if ext == ".pcap" {
 			_, err = ProcessPcapFile(file, pcapDetector, scanner.StreamPCAP)
+		} else if ext == ".csv" {
+			_, err = ProcessFile(file, netflowDetector, scanner.StreamCSV)
 		} else if ext == ".json" {
 			_, err = ProcessFile(file, netflowDetector, scanner.StreamJSON)
 		} else if ext == ".ndjson" {
@@ -209,8 +222,11 @@ func processBatch(cf classifiedFiles, totalFiles int) ([]models.MLResult, int64,
 }
 
 func streamFnFor(path string) StreamFn {
-	if strings.ToLower(filepath.Ext(path)) == ".json" {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".json" {
 		return scanner.StreamJSON
+	} else if ext == ".csv" {
+		return scanner.StreamCSV
 	}
 	return scanner.StreamNDJSON
 }

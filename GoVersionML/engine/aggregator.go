@@ -74,10 +74,24 @@ func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
 	}
 
 	t, err := time.Parse("2006-01-02T15:04:05.000", s)
-	if err != nil && a.timestampWarningLogged.CompareAndSwap(false, true) {
+	if err == nil {
+		return t, true
+	}
+
+	t, err = time.Parse("2006-01-02 15:04:05", s)
+	if err == nil {
+		return t, true
+	}
+
+	t, err = time.Parse("2006-01-02 15:04:05.000", s)
+	if err == nil {
+		return t, true
+	}
+
+	if a.timestampWarningLogged.CompareAndSwap(false, true) {
 		log.Printf("WARNING: failed to parse timestamp %q: %v (further warnings suppressed)", s, err)
 	}
-	return t, err == nil
+	return t, false
 }
 
 func getWindowKey(ip string, t time.Time) WindowKey {

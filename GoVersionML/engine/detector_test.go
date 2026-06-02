@@ -128,17 +128,17 @@ func TestDetector_ProcessRecord(t *testing.T) {
 func TestDetector_FormatResults_Threshold(t *testing.T) {
 	d := &Detector{}
 	probs := map[string]float64{
-		"bot":    0.51,
-		"benign": 0.49,
+		"bot":    0.81,
+		"benign": 0.79,
 	}
 
 	results := d.formatResults(probs)
 	for _, res := range results {
 		if res.IP == "bot" && !res.IsBotnet {
-			t.Error("0.51 should be marked as botnet")
+			t.Error("0.81 should be marked as botnet")
 		}
 		if res.IP == "benign" && res.IsBotnet {
-			t.Error("0.49 should not be marked as botnet")
+			t.Error("0.79 should not be marked as botnet")
 		}
 	}
 }
