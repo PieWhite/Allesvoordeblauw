@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"goversion/config"
 	"goversion/models"
 
 	xgboost "github.com/Elvenson/xgboost-go"
@@ -28,6 +29,7 @@ type Detector struct {
 	explainer     *Explainer
 	probMutex     sync.Mutex
 	currentWindow atomic.Int64
+	Subnet        string
 }
 
 func NewDetector(modelPath string) (*Detector, error) {
@@ -51,6 +53,9 @@ func NewDetector(modelPath string) (*Detector, error) {
 }
 
 func (d *Detector) ProcessRecord(record models.NetflowRecord) {
+	if d.Subnet != "" && !config.MatchSubnet(record.Src4Addr, d.Subnet) && !config.MatchSubnet(record.Dst4Addr, d.Subnet) {
+		return
+	}
 	atomic.AddInt64(&d.TotalRecords, 1)
 	d.aggregator.Update(record)
 }
@@ -62,11 +67,14 @@ func (d *Detector) TotalCount() int64 {
 }
 
 func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
-	atomic.AddInt64(&d.TotalRecords, int64(len(records)))
-
 	var localMaxWindow int64
+	var matchedCount int64
 
 	for _, record := range records {
+		if d.Subnet != "" && !config.MatchSubnet(record.Src4Addr, d.Subnet) && !config.MatchSubnet(record.Dst4Addr, d.Subnet) {
+			continue
+		}
+		matchedCount++
 		d.aggregator.Update(record)
 
 		// Quickly sniff the timestamp for flushing logic
@@ -86,6 +94,8 @@ func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
 			}
 		}
 	}
+
+	atomic.AddInt64(&d.TotalRecords, matchedCount)
 
 	if localMaxWindow > 0 {
 		d.updateMaxWindowAndFlush(localMaxWindow)
@@ -182,6 +192,9 @@ func (d *Detector) formatResults(probs map[string]float64) []models.MLResult {
 	const threshold = 0.50
 	results := make([]models.MLResult, 0, len(probs))
 	for ip, prob := range probs {
+		if d.Subnet != "" && !config.MatchSubnet(ip, d.Subnet) {
+			continue
+		}
 		var expl string
 		if prob > threshold && d.explainer != nil {
 			if feats, ok := d.maxFeatures[ip]; ok {

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"goversion/config"
 	"goversion/engine"
 	"goversion/models"
 )
@@ -18,10 +19,18 @@ type RecordProcessor interface {
 type StreamFn func(r io.Reader, fn func([]models.NetflowRecord)) error
 
 
-func AnalyzeFile(inputPath string, modelPath string, stream StreamFn) ([]models.MLResult, int64, error) {
+func AnalyzeFile(cfg *config.AppConfig, modelPath string, stream StreamFn) ([]models.MLResult, int64, error) {
 	detector, err := engine.NewDetector(modelPath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed loading xgboost model: %w", err)
+	}
+	if cfg != nil {
+		detector.Subnet = cfg.Subnet
+	}
+
+	inputPath := ""
+	if cfg != nil {
+		inputPath = cfg.InputPath
 	}
 
 	_, err = ProcessFile(inputPath, detector, stream)

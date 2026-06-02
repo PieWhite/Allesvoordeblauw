@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"goversion/config"
 	"goversion/models"
 
 	xgboost "github.com/Elvenson/xgboost-go"
@@ -25,6 +26,7 @@ type PcapDetector struct {
 	explainer     *Explainer
 	probMutex     sync.Mutex
 	currentWindow atomic.Int64
+	Subnet        string
 }
 
 func NewPcapDetector(modelPath string) (*PcapDetector, error) {
@@ -54,11 +56,14 @@ func (d *PcapDetector) TotalCount() int64 {
 
 // ProcessPcapRecords streams a batch of PCAP records into the pcapAggregator
 func (d *PcapDetector) ProcessPcapRecords(records []models.PcapRecord) {
-	atomic.AddInt64(&d.TotalRecords, int64(len(records)))
-
 	var localMaxWindow int64
+	var matchedCount int64
 
 	for _, record := range records {
+		if d.Subnet != "" && !config.MatchSubnet(record.SrcIP, d.Subnet) && !config.MatchSubnet(record.DstIP, d.Subnet) {
+			continue
+		}
+		matchedCount++
 		d.pcapAggregator.Update(record)
 
 		// Sniff timestamp for flushing logic (5-minute windows)
@@ -67,6 +72,8 @@ func (d *PcapDetector) ProcessPcapRecords(records []models.PcapRecord) {
 			localMaxWindow = win
 		}
 	}
+
+	atomic.AddInt64(&d.TotalRecords, matchedCount)
 
 	if localMaxWindow > 0 {
 		d.updateMaxWindowAndFlush(localMaxWindow)
@@ -181,6 +188,9 @@ func (d *PcapDetector) formatResults(probs map[string]float64) []models.MLResult
 	const threshold = 0.50
 	results := make([]models.MLResult, 0, len(probs))
 	for ip, prob := range probs {
+		if d.Subnet != "" && !config.MatchSubnet(ip, d.Subnet) {
+			continue
+		}
 		var expl string
 		if prob > threshold && d.explainer != nil {
 			if feats, ok := d.maxFeatures[ip]; ok {

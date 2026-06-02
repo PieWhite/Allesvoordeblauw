@@ -3,6 +3,8 @@ package config
 import (
 	"flag"
 	"fmt"
+	"net"
+	"strings"
 )
 
 // AppConfig holds the configuration state for the application.
@@ -13,6 +15,7 @@ type AppConfig struct {
 	CpuProfile  string
 	MemProfile  string
 	SkipConfirm bool
+	Subnet      string
 }
 
 // ParseFlags reads command-line flags and arguments, populating the AppConfig.
@@ -24,6 +27,7 @@ func (c *AppConfig) ParseArgs(args []string) error {
 	fs.StringVar(&c.OutputFile, "o", "", "Write results to a text file: -o yourresults.txt")
 	fs.StringVar(&c.CpuProfile, "cpuprofile", "", "Write CPU profile to file")
 	fs.StringVar(&c.MemProfile, "memprofile", "", "Write memory profile to file")
+	fs.StringVar(&c.Subnet, "subnet", "", "IP subnet to filter on (e.g. 192.251.0.0/16 or 196.251.x.x)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -34,4 +38,37 @@ func (c *AppConfig) ParseArgs(args []string) error {
 	}
 	c.InputPath = fs.Arg(0)
 	return nil
+}
+
+// MatchSubnet checks if the given IP matches the subnet or wildcard prefix.
+func MatchSubnet(ipStr string, subnetStr string) bool {
+	if subnetStr == "" {
+		return true
+	}
+	// Clean up whitespaces
+	subnetStr = strings.TrimSpace(subnetStr)
+
+	// Support standard CIDR notation first, e.g. "192.251.0.0/16"
+	if strings.Contains(subnetStr, "/") {
+		_, ipNet, err := net.ParseCIDR(subnetStr)
+		if err == nil {
+			ip := net.ParseIP(strings.TrimSpace(ipStr))
+			if ip != nil {
+				return ipNet.Contains(ip)
+			}
+		}
+	}
+
+	// Fallback: If it has wildcards like 'x', 'X', '*', replace/truncate them.
+	// E.g. "192.251.x.x" or "192.251.*"
+	wildcardIdx := strings.IndexAny(subnetStr, "xX*")
+	var prefix string
+	if wildcardIdx != -1 {
+		prefix = subnetStr[:wildcardIdx]
+	} else {
+		prefix = subnetStr
+	}
+
+	// Ensure IP and prefix comparison is clean (e.g. string prefixes)
+	return strings.HasPrefix(strings.TrimSpace(ipStr), prefix)
 }

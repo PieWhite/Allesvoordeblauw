@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"goversion/config"
 	"goversion/models"
 )
 
@@ -200,7 +201,7 @@ func TestAnalyzeFile(t *testing.T) {
 	}
 
 	t.Run("InvalidModelPath", func(t *testing.T) {
-		_, _, err := AnalyzeFile("dummy.json", "invalid/path/to/model.json", mockScanner)
+		_, _, err := AnalyzeFile(&config.AppConfig{InputPath: "dummy.json"}, "invalid/path/to/model.json", mockScanner)
 		if err == nil {
 			t.Fatalf("expected error for invalid model path, got nil")
 		}
@@ -208,7 +209,7 @@ func TestAnalyzeFile(t *testing.T) {
 
 	t.Run("InvalidInputPath", func(t *testing.T) {
 		// Valid model, but invalid input file
-		_, _, err := AnalyzeFile("nonexistent_input.json", validModel, mockScanner)
+		_, _, err := AnalyzeFile(&config.AppConfig{InputPath: "nonexistent_input.json"}, validModel, mockScanner)
 		if err == nil {
 			t.Fatalf("expected error for missing input file, got nil")
 		}
@@ -234,7 +235,7 @@ func TestAnalyzeFile(t *testing.T) {
 
 		// Test success execution
 		// Note: since this does actual ML inference setup, it may return some empty result or an error based on the ML engine if it expects specific format
-		_, _, err = AnalyzeFile(tempFile.Name(), validModel, mockScanner)
+		_, _, err = AnalyzeFile(&config.AppConfig{InputPath: tempFile.Name()}, validModel, mockScanner)
 
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
@@ -242,7 +243,7 @@ func TestAnalyzeFile(t *testing.T) {
 	})
 
 	t.Run("NilStream", func(t *testing.T) {
-		_, _, err := AnalyzeFile("dummy.json", validModel, nil)
+		_, _, err := AnalyzeFile(&config.AppConfig{InputPath: "dummy.json"}, validModel, nil)
 		if err == nil {
 			t.Fatalf("expected error for nil stream, got nil")
 		}

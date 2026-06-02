@@ -32,29 +32,29 @@ func RunPipelineForInput(cfg *config.AppConfig) ([]models.MLResult, int64, error
 	}
 
 	if !info.IsDir() {
-		return routeSingleFile(cfg.InputPath)
+		return routeSingleFile(cfg)
 	}
 
 	return runDirectoryPipeline(cfg)
 }
 
 // routeSingleFile dispatches a single file to the correct scanner based on extension.
-func routeSingleFile(inputPath string) ([]models.MLResult, int64, error) {
-	ext := strings.ToLower(filepath.Ext(inputPath))
+func routeSingleFile(cfg *config.AppConfig) ([]models.MLResult, int64, error) {
+	ext := strings.ToLower(filepath.Ext(cfg.InputPath))
 
 	switch ext {
 	case ".pcap":
 		resolved := resolveModelPath(true)
-		return AnalyzePcapFile(inputPath, resolved, scanner.StreamPCAP)
+		return AnalyzePcapFile(cfg, resolved, scanner.StreamPCAP)
 	case ".ndjson":
 		resolved := resolveModelPath(false)
-		return AnalyzeFile(inputPath, resolved, scanner.StreamNDJSON)
+		return AnalyzeFile(cfg, resolved, scanner.StreamNDJSON)
 	case ".json":
 		resolved := resolveModelPath(false)
-		return AnalyzeFile(inputPath, resolved, scanner.StreamJSON)
+		return AnalyzeFile(cfg, resolved, scanner.StreamJSON)
 	case ".csv":
 		resolved := resolveModelPath(false)
-		return AnalyzeFile(inputPath, resolved, scanner.StreamCSV)
+		return AnalyzeFile(cfg, resolved, scanner.StreamCSV)
 	default:
 		return nil, 0, fmt.Errorf("unsupported file extension: %s", ext)
 	}
@@ -81,7 +81,7 @@ func runDirectoryPipeline(cfg *config.AppConfig) ([]models.MLResult, int64, erro
 		}
 	}
 
-	return processBatch(classified, totalFiles)
+	return processBatch(cfg, classified, totalFiles)
 }
 
 func classifyDirectory(dirPath string) (classifiedFiles, error) {
@@ -147,7 +147,7 @@ func confirmDirectoryParse(cf classifiedFiles) error {
 	return nil
 }
 
-func processBatch(cf classifiedFiles, totalFiles int) ([]models.MLResult, int64, error) {
+func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]models.MLResult, int64, error) {
 	var netflowDetector *engine.Detector
 	var pcapDetector *engine.PcapDetector
 	var err error
@@ -158,6 +158,9 @@ func processBatch(cf classifiedFiles, totalFiles int) ([]models.MLResult, int64,
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed loading xgboost model for Netflow: %w", err)
 		}
+		if cfg != nil {
+			netflowDetector.Subnet = cfg.Subnet
+		}
 	}
 
 	if len(cf.pcap) > 0 {
@@ -165,6 +168,9 @@ func processBatch(cf classifiedFiles, totalFiles int) ([]models.MLResult, int64,
 		pcapDetector, err = engine.NewPcapDetector(resolved)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed loading xgboost model for PCAP: %w", err)
+		}
+		if cfg != nil {
+			pcapDetector.Subnet = cfg.Subnet
 		}
 	}
 

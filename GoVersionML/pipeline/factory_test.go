@@ -184,7 +184,7 @@ func TestProcessBatchErrorHandling(t *testing.T) {
 		NetflowModelPath = originalNetflow
 	})
 
-	_, _, err := processBatch(cf, 1)
+	_, _, err := processBatch(&config.AppConfig{}, cf, 1)
 	if err == nil {
 		t.Fatal("expected model loading error, got nil")
 	}
@@ -204,7 +204,7 @@ func TestProcessBatchCSVErrorHandling(t *testing.T) {
 		NetflowModelPath = originalNetflow
 	})
 
-	_, _, err := processBatch(cf, 1)
+	_, _, err := processBatch(&config.AppConfig{}, cf, 1)
 	if err == nil {
 		t.Fatal("expected model loading error, got nil")
 	}

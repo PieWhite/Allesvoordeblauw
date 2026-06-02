@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"goversion/config"
 	"goversion/engine"
 	"goversion/models"
 )
@@ -19,10 +20,18 @@ type PcapRecordProcessor interface {
 type PcapStreamFn func(r io.Reader, fn func([]models.PcapRecord)) error
 
 // AnalyzePcapFile is the entry point for PCAP file stream parsing and botnet detection
-func AnalyzePcapFile(inputPath string, modelPath string, stream PcapStreamFn) ([]models.MLResult, int64, error) {
+func AnalyzePcapFile(cfg *config.AppConfig, modelPath string, stream PcapStreamFn) ([]models.MLResult, int64, error) {
 	detector, err := engine.NewPcapDetector(modelPath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed loading xgboost model: %w", err)
+	}
+	if cfg != nil {
+		detector.Subnet = cfg.Subnet
+	}
+
+	inputPath := ""
+	if cfg != nil {
+		inputPath = cfg.InputPath
 	}
 
 	_, err = ProcessPcapFile(inputPath, detector, stream)
