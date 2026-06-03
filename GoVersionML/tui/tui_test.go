@@ -538,13 +538,13 @@ func TestModel_WindowSizeMsg(t *testing.T) {
 	}
 }
 
-func TestModel_FileBrowser_ViewportScrolling(t *testing.T) {
+func TestModel_FileBrowser_Pagination(t *testing.T) {
 	m := NewModel()
 	m.state = stateFileBrowser
-	m.height = 20 // This makes maxEntries = 20 - 15 = 5
+	m.height = 20
 	m.width = 60
 
-	// Populate entries without fmt
+	// Populate entries
 	for i := 0; i < 15; i++ {
 		name := "file_"
 		if i == 0 {
@@ -567,19 +567,103 @@ func TestModel_FileBrowser_ViewportScrolling(t *testing.T) {
 		t.Error("expected first file to be in view initially")
 	}
 	if strings.Contains(view, "file_10.json") {
-		t.Error("expected file_10.json to be out of view viewport initially")
+		t.Error("expected file_10.json to be out of view on page 1")
 	}
-	if !strings.Contains(view, "Showing 1-5 of 15") {
-		t.Errorf("expected viewport range to be Showing 1-5 of 15, view: %s", view)
+	if !strings.Contains(view, "Page 1/2 (Items 1-10 of 15)") {
+		t.Errorf("expected page indicator to be Page 1/2 (Items 1-10 of 15), view: %s", view)
 	}
 
-	// Move cursor deep down
+	// Move cursor deep down to 10
 	m.fileCursor = 10
 	viewAfterMove := m.View()
 	if !strings.Contains(viewAfterMove, "file_10.json") {
-		t.Error("expected file_10.json to be visible after moving cursor to 10")
+		t.Error("expected file_10.json to be visible on page 2")
 	}
-	if !strings.Contains(viewAfterMove, "Showing 9-13 of 15") { // Center window around 10: 10 - 5/2 = 8. start = 8, end = 13.
-		t.Errorf("expected viewport range to adjust to Showing 9-13 of 15, view: %s", viewAfterMove)
+	if strings.Contains(viewAfterMove, "file_0.json") {
+		t.Error("expected file_0.json to be out of view on page 2")
+	}
+	if !strings.Contains(viewAfterMove, "Page 2/2 (Items 11-15 of 15)") {
+		t.Errorf("expected page indicator to adjust to Page 2/2 (Items 11-15 of 15), view: %s", viewAfterMove)
+	}
+}
+
+func TestModel_FileBrowser_PaginationKeys(t *testing.T) {
+	m := NewModel()
+	m.state = stateFileBrowser
+	
+	// Create 25 dummy entries
+	for i := 0; i < 25; i++ {
+		m.entries = append(m.entries, FileEntry{
+			Name:  "file.json",
+			IsDir: false,
+			Size:  100,
+		})
+	}
+	m.fileCursor = 0
+
+	// Test Right arrow / page down (should go from 0 to 10)
+	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected Model")
+	}
+	if mResult.fileCursor != 10 {
+		t.Errorf("expected cursor to be 10, got %d", mResult.fileCursor)
+	}
+
+	// Test vim 'l' to go to next page (should go from 10 to 20)
+	updatedModel2, _ := mResult.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	mResult2, ok := updatedModel2.(Model)
+	if !ok {
+		t.Fatalf("expected Model")
+	}
+	if mResult2.fileCursor != 20 {
+		t.Errorf("expected cursor to be 20, got %d", mResult2.fileCursor)
+	}
+
+	// Test Left arrow / page up (should go from 20 to 10)
+	updatedModel3, _ := mResult2.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	mResult3, ok := updatedModel3.(Model)
+	if !ok {
+		t.Fatalf("expected Model")
+	}
+	if mResult3.fileCursor != 10 {
+		t.Errorf("expected cursor to be 10, got %d", mResult3.fileCursor)
+	}
+
+	// Test vim 'h' to go to prev page (should go from 10 to 0)
+	updatedModel4, _ := mResult3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	mResult4, ok := updatedModel4.(Model)
+	if !ok {
+		t.Fatalf("expected Model")
+	}
+	if mResult4.fileCursor != 0 {
+		t.Errorf("expected cursor to be 0, got %d", mResult4.fileCursor)
+	}
+}
+
+func TestModel_FileBrowser_PressX_OnCSV(t *testing.T) {
+	m := NewModel()
+	m.state = stateFileBrowser
+	m.selectedOption = 0
+	m.currentDir = "/test/dir"
+	
+	m.entries = []FileEntry{
+		{Name: "data.csv", IsDir: false, Size: 100},
+	}
+	m.fileCursor = 0
+	
+	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected model to be of type Model")
+	}
+	
+	if mResult.state != stateConfirmSelection {
+		t.Errorf("expected state to switch to stateConfirmSelection, got %v", mResult.state)
+	}
+	expectedPath := filepath.Join("/test/dir", "data.csv")
+	if mResult.scanPath != expectedPath {
+		t.Errorf("expected scanPath to be %s, got %s", expectedPath, mResult.scanPath)
 	}
 }

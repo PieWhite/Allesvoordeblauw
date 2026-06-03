@@ -79,6 +79,7 @@ type Model struct {
 	scanJSONCount   int
 	scanNDJSONCount int
 	scanPCAPCount   int
+	scanCSVCount    int
 
 	// Background scanning channels
 	sharedBytesRead *int64
@@ -169,7 +170,7 @@ func (m *Model) getScanTotalSize() int64 {
 	_ = filepath.WalkDir(m.scanPath, func(path string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			ext := strings.ToLower(filepath.Ext(path))
-			if ext == ".json" || ext == ".ndjson" || ext == ".pcap" {
+			if ext == ".json" || ext == ".ndjson" || ext == ".pcap" || ext == ".csv" {
 				if fInfo, fErr := d.Info(); fErr == nil {
 					total += fInfo.Size()
 				}
@@ -180,23 +181,25 @@ func (m *Model) getScanTotalSize() int64 {
 	return total
 }
 
-// getScanFileCounts walks the target path and counts JSON, NDJSON, and PCAP files.
-func (m *Model) getScanFileCounts() (jsonCount, ndjsonCount, pcapCount int) {
+// getScanFileCounts walks the target path and counts JSON, NDJSON, PCAP, and CSV files.
+func (m *Model) getScanFileCounts() (jsonCount, ndjsonCount, pcapCount, csvCount int) {
 	info, err := os.Stat(m.scanPath)
 	if err != nil {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 	if !info.IsDir() {
 		ext := strings.ToLower(filepath.Ext(m.scanPath))
 		switch ext {
 		case ".json":
-			return 1, 0, 0
+			return 1, 0, 0, 0
 		case ".ndjson":
-			return 0, 1, 0
+			return 0, 1, 0, 0
 		case ".pcap":
-			return 0, 0, 1
+			return 0, 0, 1, 0
+		case ".csv":
+			return 0, 0, 0, 1
 		}
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 
 	_ = filepath.WalkDir(m.scanPath, func(path string, d os.DirEntry, err error) error {
@@ -209,6 +212,8 @@ func (m *Model) getScanFileCounts() (jsonCount, ndjsonCount, pcapCount int) {
 				ndjsonCount++
 			case ".pcap":
 				pcapCount++
+			case ".csv":
+				csvCount++
 			}
 		}
 		return nil
@@ -279,6 +284,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scanJSONCount = 0
 				m.scanNDJSONCount = 0
 				m.scanPCAPCount = 0
+				m.scanCSVCount = 0
 				m.scanResults = nil
 				m.totalRecords = 0
 				m.scanError = nil
@@ -290,6 +296,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scanJSONCount = 0
 				m.scanNDJSONCount = 0
 				m.scanPCAPCount = 0
+				m.scanCSVCount = 0
 				return m, nil
 			}
 			if m.state == stateFileBrowser {
@@ -334,6 +341,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.fileCursor = 0
 				}
+			case "left", "h", "pgup":
+				if len(m.entries) > 0 {
+					m.fileCursor -= 10
+					if m.fileCursor < 0 {
+						m.fileCursor = 0
+					}
+				}
+			case "right", "l", "pgdown":
+				if len(m.entries) > 0 {
+					m.fileCursor += 10
+					if m.fileCursor >= len(m.entries) {
+						m.fileCursor = len(m.entries) - 1
+					}
+				}
 			case "backspace":
 				parent := filepath.Dir(m.currentDir)
 				if parent != m.currentDir {
@@ -345,16 +366,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.selectedOption == 0 {
 						if !entry.IsDir {
 							ext := strings.ToLower(filepath.Ext(entry.Name))
-							if ext == ".json" || ext == ".ndjson" || ext == ".pcap" {
+							if ext == ".json" || ext == ".ndjson" || ext == ".pcap" || ext == ".csv" {
 								m.scanPath = filepath.Join(m.currentDir, entry.Name)
-								m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount = m.getScanFileCounts()
+								m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount, m.scanCSVCount = m.getScanFileCounts()
 								m.state = stateConfirmSelection
 							}
 						}
 					} else if m.selectedOption == 1 {
 						if entry.IsDir && entry.Name != ".." {
 							m.scanPath = filepath.Join(m.currentDir, entry.Name)
-							m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount = m.getScanFileCounts()
+							m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount, m.scanCSVCount = m.getScanFileCounts()
 							m.state = stateConfirmSelection
 						}
 					}
@@ -429,6 +450,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scanJSONCount = 0
 				m.scanNDJSONCount = 0
 				m.scanPCAPCount = 0
+				m.scanCSVCount = 0
 			}
 		} else if m.state == stateResults {
 			switch msg.String() {
@@ -553,26 +575,12 @@ func (m Model) View() string {
 		if len(m.entries) == 0 {
 			sb.WriteString("    (Empty Directory)\n")
 		} else {
-			maxEntries := 10 // beyond a certain point: default to 10
-			if m.height > 0 {
-				maxEntries = m.height - 15
-				if maxEntries < 3 {
-					maxEntries = 3
-				}
-			}
-
-			start := 0
-			end := len(m.entries)
-			if len(m.entries) > maxEntries {
-				start = m.fileCursor - maxEntries/2
-				if start < 0 {
-					start = 0
-				}
-				end = start + maxEntries
-				if end > len(m.entries) {
-					end = len(m.entries)
-					start = end - maxEntries
-				}
+			pageSize := 10
+			currentPage := m.fileCursor / pageSize
+			start := currentPage * pageSize
+			end := start + pageSize
+			if end > len(m.entries) {
+				end = len(m.entries)
 			}
 
 			var lines []string
@@ -581,8 +589,8 @@ func (m Model) View() string {
 				icon := "📁"
 				if !entry.IsDir {
 					ext := strings.ToLower(filepath.Ext(entry.Name))
-					if ext == ".json" || ext == ".ndjson" || ext == ".pcap" {
-						icon = "📊" // Distinct icon for json/ndjson/pcap files
+					if ext == ".json" || ext == ".ndjson" || ext == ".pcap" || ext == ".csv" {
+						icon = "📊" // Distinct icon for json/ndjson/pcap/csv files
 					} else {
 						icon = "📄"
 					}
@@ -611,7 +619,7 @@ func (m Model) View() string {
 				lines = append(lines, formattedLine)
 			}
 
-			if len(m.entries) > maxEntries {
+			if len(m.entries) > pageSize {
 				targetWidth := 0
 				for _, line := range lines {
 					w := lipgloss.Width(line)
@@ -646,27 +654,17 @@ func (m Model) View() string {
 		// Standard navigation footer
 		scrollText := ""
 		if len(m.entries) > 0 {
-			maxEntries := 10
-			if m.height > 0 {
-				maxEntries = m.height - 15
-				if maxEntries < 3 {
-					maxEntries = 3
-				}
+			pageSize := 10
+			totalPages := (len(m.entries) + pageSize - 1) / pageSize
+			currentPage := m.fileCursor / pageSize
+			start := currentPage * pageSize
+			end := start + pageSize
+			if end > len(m.entries) {
+				end = len(m.entries)
 			}
-			if len(m.entries) > maxEntries {
-				start := m.fileCursor - maxEntries/2
-				if start < 0 {
-					start = 0
-				}
-				end := start + maxEntries
-				if end > len(m.entries) {
-					end = len(m.entries)
-					start = end - maxEntries
-				}
-				scrollText = fmt.Sprintf(" • [Showing %d-%d of %d]", start+1, end, len(m.entries))
-			}
+			scrollText = fmt.Sprintf(" • [Page %d/%d (Items %d-%d of %d)]", currentPage+1, totalPages, start+1, end, len(m.entries))
 		}
-		sb.WriteString("  " + hintStyle.Render("Use ↑/↓ or j/k to navigate • Enter to open folder • Backspace to go up • Esc to return"+scrollText) + "\n\n")
+		sb.WriteString("  " + hintStyle.Render("Use ↑/↓ or j/k to navigate • ←/→ or h/l to page • Enter to open folder • Backspace to go up • Esc to return"+scrollText) + "\n\n")
 
 	} else if m.state == stateConfirmSelection {
 		sb.WriteString("  " + titleStyle.Render("Confirm Scan Action") + "\n\n")
@@ -685,7 +683,8 @@ func (m Model) View() string {
 			sb.WriteString("  Detected in folder:\n")
 			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 JSON files:   %d", m.scanJSONCount)) + "\n")
 			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 NDJSON files: %d", m.scanNDJSONCount)) + "\n")
-			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 PCAP files:   %d", m.scanPCAPCount)) + "\n\n")
+			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 PCAP files:   %d", m.scanPCAPCount)) + "\n")
+			sb.WriteString(statsStyle.Render(fmt.Sprintf("    📊 CSV files:    %d", m.scanCSVCount)) + "\n\n")
 		}
 
 		// Stylized choices
@@ -705,7 +704,7 @@ func (m Model) View() string {
 		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Scanning Target: %s", fileName)) + "\n")
 
 		if m.selectedOption == 1 {
-			sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Contains: %d JSON, %d NDJSON, %d PCAP files", m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount)) + "\n")
+			sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Contains: %d JSON, %d NDJSON, %d PCAP, %d CSV files", m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount, m.scanCSVCount)) + "\n")
 		}
 
 		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Total Scan Size: %s", formatSize(m.scanTotalBytes))) + "\n")
