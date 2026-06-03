@@ -51,8 +51,8 @@ func run(args []string) error {
 			f.Close()
 			return fmt.Errorf("could not start CPU profile: %w", err)
 		}
-		defer pprof.StopCPUProfile()
 		defer f.Close()
+		defer pprof.StopCPUProfile()
 	}
 
 	out, cleanup, err := output.Setup(appConfig.OutputFile)

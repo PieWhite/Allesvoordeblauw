@@ -1,12 +1,12 @@
 ﻿goos: windows
 goarch: amd64
 pkg: goversion/main
-cpu: 11th Gen Intel(R) Core(TM) i5-11300H @ 3.10GHz
-BenchmarkEndToEnd-8   	       2	 760679650 ns/op	123074912 B/op	  931653 allocs/op
-BenchmarkEndToEnd-8   	       2	 762615100 ns/op	118946376 B/op	  931625 allocs/op
-BenchmarkEndToEnd-8   	       2	 766791900 ns/op	119608172 B/op	  931638 allocs/op
-BenchmarkEndToEnd-8   	       2	 800144250 ns/op	118101652 B/op	  931620 allocs/op
-BenchmarkEndToEnd-8   	       1	1408698000 ns/op	140225904 B/op	  931738 allocs/op
-BenchmarkEndToEnd-8   	       1	1499027600 ns/op	134858472 B/op	  931714 allocs/op
+cpu: AMD Ryzen 7 7800X3D 8-Core Processor           
+BenchmarkEndToEnd-16    	       2	 619059300 ns/op	137880064 B/op	  985989 allocs/op
+BenchmarkEndToEnd-16    	       2	 597753800 ns/op	140208688 B/op	  985984 allocs/op
+BenchmarkEndToEnd-16    	       2	 577464900 ns/op	139011248 B/op	  985980 allocs/op
+BenchmarkEndToEnd-16    	       2	 578581650 ns/op	139548240 B/op	  985985 allocs/op
+BenchmarkEndToEnd-16    	       2	 568264500 ns/op	139546348 B/op	  985965 allocs/op
+BenchmarkEndToEnd-16    	       2	 575140650 ns/op	116654724 B/op	  985870 allocs/op
 PASS
-ok  	goversion/main	13.239s
+ok  	goversion/main	11.055s

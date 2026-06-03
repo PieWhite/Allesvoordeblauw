@@ -129,7 +129,7 @@ func TestDetector_FormatResults_Threshold(t *testing.T) {
 	d := &Detector{}
 	probs := map[string]float64{
 		"bot":    0.81,
-		"benign": 0.79,
+		"benign": 0.49,
 	}
 
 	results := d.formatResults(probs)
@@ -138,7 +138,7 @@ func TestDetector_FormatResults_Threshold(t *testing.T) {
 			t.Error("0.81 should be marked as botnet")
 		}
 		if res.IP == "benign" && res.IsBotnet {
-			t.Error("0.79 should not be marked as botnet")
+			t.Error("0.49 should not be marked as botnet")
 		}
 	}
 }
@@ -235,14 +235,13 @@ func TestEvaluateBatch_MaxProbUpdate(t *testing.T) {
 		maxProbs:   make(map[string]float64),
 	}
 
-	stats := NewIPStats()
-	stats.IP = "10.0.0.1"
-
 	// First update with 0.5
 	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
 		return mat.Matrix{Vectors: []*mat.Vector{{0.5}}}, nil
 	}
-	d.evaluateBatch([]*IPStats{stats})
+	stats1 := NewIPStats()
+	stats1.IP = "10.0.0.1"
+	d.evaluateBatch([]*IPStats{stats1})
 
 	if d.maxProbs["10.0.0.1"] != 0.5 {
 		t.Errorf("Expected 0.5, got %v", d.maxProbs["10.0.0.1"])
@@ -252,7 +251,9 @@ func TestEvaluateBatch_MaxProbUpdate(t *testing.T) {
 	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
 		return mat.Matrix{Vectors: []*mat.Vector{{0.8}}}, nil
 	}
-	d.evaluateBatch([]*IPStats{stats})
+	stats2 := NewIPStats()
+	stats2.IP = "10.0.0.1"
+	d.evaluateBatch([]*IPStats{stats2})
 
 	if math.Abs(d.maxProbs["10.0.0.1"]-float64(float32(0.8))) > 1e-6 {
 		t.Errorf("Expected ~0.8, got %v", d.maxProbs["10.0.0.1"])
@@ -262,7 +263,9 @@ func TestEvaluateBatch_MaxProbUpdate(t *testing.T) {
 	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
 		return mat.Matrix{Vectors: []*mat.Vector{{0.3}}}, nil
 	}
-	d.evaluateBatch([]*IPStats{stats})
+	stats3 := NewIPStats()
+	stats3.IP = "10.0.0.1"
+	d.evaluateBatch([]*IPStats{stats3})
 
 	if math.Abs(d.maxProbs["10.0.0.1"]-float64(float32(0.8))) > 1e-6 {
 		t.Errorf("Expected ~0.8 after lower prob, got %v", d.maxProbs["10.0.0.1"])

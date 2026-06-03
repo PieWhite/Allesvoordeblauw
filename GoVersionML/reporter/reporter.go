@@ -12,14 +12,24 @@ import (
 // PrintSummary handles the presentation logic: formatting, sorting, and writing
 // the ML results to the provided output stream.
 func PrintSummary(out io.Writer, results []models.MLResult, totalRecords int64, duration time.Duration) {
-	sort.SliceStable(results, func(i, j int) bool {
-		return results[i].Probability > results[j].Probability
+	var realResults []models.MLResult
+	var dummyCount int
+	for _, res := range results {
+		if res.IP != "" {
+			realResults = append(realResults, res)
+		} else {
+			dummyCount++
+		}
+	}
+
+	sort.SliceStable(realResults, func(i, j int) bool {
+		return realResults[i].Probability > realResults[j].Probability
 	})
 
 	fmt.Fprintln(out)
 
 	var botnetCount int
-	for _, res := range results {
+	for _, res := range realResults {
 		if res.IsBotnet {
 			botnetCount++
 			if res.Explanation != "" {
@@ -32,7 +42,7 @@ func PrintSummary(out io.Writer, results []models.MLResult, totalRecords int64, 
 
 	fmt.Fprintf(out, "\n[Top Benign Background Noise (For Contrast)]\n")
 	benignPrinted := 0
-	for _, res := range results {
+	for _, res := range realResults {
 		if !res.IsBotnet && benignPrinted < 5 {
 			fmt.Fprintf(out, "[BENIGN TRAFFIC ] IP: %-15s | ML Probability: %6.2f%%\n", res.IP, res.Probability)
 			benignPrinted++
@@ -40,6 +50,6 @@ func PrintSummary(out io.Writer, results []models.MLResult, totalRecords int64, 
 	}
 
 	fmt.Fprintf(out, "\nDone. Processed %d records.\n", totalRecords)
-	fmt.Fprintf(out, "Identified %d specific Botnet IPs out of %d total communicating IPs.\n", botnetCount, len(results))
+	fmt.Fprintf(out, "Identified %d specific Botnet IPs out of %d total communicating IPs.\n", botnetCount, len(realResults)+dummyCount)
 	fmt.Fprintf(out, "Execution time: %.4f seconds\n", duration.Seconds())
 }

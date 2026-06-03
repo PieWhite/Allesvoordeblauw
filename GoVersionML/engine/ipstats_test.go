@@ -3,21 +3,17 @@ package engine
 import (
 	"math"
 	"testing"
+	"time"
 )
 
 // TestPortSymmetry targets the symmetry++ line.
 func TestPortSymmetry(t *testing.T) {
 	s := NewIPStats()
-	s.OutboundDstPorts = make(map[int]struct{})
-	s.InboundDstPorts = make(map[int]struct{})
+	s.AddOutboundDstPort(53)
+	s.AddOutboundDstPort(80)
 
-	// Outbound ports
-	s.OutboundDstPorts[53] = struct{}{}
-	s.OutboundDstPorts[80] = struct{}{}
-
-	// Inbound ports
-	s.InboundDstPorts[53] = struct{}{}
-	s.InboundDstPorts[443] = struct{}{}
+	s.AddInboundDstPort(53)
+	s.AddInboundDstPort(443)
 
 	symmetry := s.calculatePortSymmetry()
 
@@ -29,12 +25,11 @@ func TestPortSymmetry(t *testing.T) {
 // TestIAT_Math_Precision verifies the Python-style variance calculation.
 func TestIAT_Math_Precision(t *testing.T) {
 	s := NewIPStats()
-	s.TargetStartTimes = make(map[TargetKey][]float64)
 	target := TargetKey{IP: "8.8.8.8", Port: 53}
 
 	// Times: 10.0, 12.0.
-	// Diffs: [0, 2.0]
-	s.TargetStartTimes[target] = []float64{10.0, 12.0}
+	s.AddTargetStartTime(target, time.Unix(10, 0))
+	s.AddTargetStartTime(target, time.Unix(12, 0))
 
 	mean, variance, cv := s.calculateIATMetrics()
 
@@ -81,3 +76,84 @@ func TestToMLVector_EmptyFlow(t *testing.T) {
 		}
 	}
 }
+
+func TestIPStats_HybridTransition(t *testing.T) {
+	s := NewIPStats()
+	
+	// Add 30 unique Dst IPs to trigger map transition
+	for i := 0; i < 30; i++ {
+		s.AddUniqueDstIP(string([]byte{byte('A' + i)}))
+	}
+	// Verify that map is populated and count is 30
+	if s.UniqueDstIPsMap == nil {
+		t.Error("expected UniqueDstIPsMap to be initialized after 30 additions")
+	}
+	if s.NumUniqueDstIPs() != 30 {
+		t.Errorf("expected 30 unique Dst IPs, got %d", s.NumUniqueDstIPs())
+	}
+	// Try adding duplicates and check count
+	s.AddUniqueDstIP("A")
+	s.AddUniqueDstIP("B")
+	if s.NumUniqueDstIPs() != 30 {
+		t.Errorf("expected count to remain 30 after duplicates, got %d", s.NumUniqueDstIPs())
+	}
+
+	// Add 30 unique Dst Ports
+	for i := 0; i < 30; i++ {
+		s.AddUniqueDstPort(i)
+	}
+	if s.UniqueDstPortsMap == nil {
+		t.Error("expected UniqueDstPortsMap to be initialized")
+	}
+	if s.NumUniqueDstPorts() != 30 {
+		t.Errorf("expected 30 unique Dst Ports, got %d", s.NumUniqueDstPorts())
+	}
+	s.AddUniqueDstPort(5)
+	if s.NumUniqueDstPorts() != 30 {
+		t.Errorf("expected count to remain 30, got %d", s.NumUniqueDstPorts())
+	}
+
+	// Add 30 unique Outbound ports
+	for i := 0; i < 30; i++ {
+		s.AddOutboundDstPort(i)
+	}
+	if s.OutboundDstPortsMap == nil {
+		t.Error("expected OutboundDstPortsMap to be initialized")
+	}
+	if len(s.OutboundDstPorts) != 29 { // First goes to FirstOutboundPort
+		t.Errorf("expected 29 elements in slice, got %d", len(s.OutboundDstPorts))
+	}
+
+	// Add 30 unique Inbound ports
+	for i := 0; i < 30; i++ {
+		s.AddInboundDstPort(i)
+	}
+	if s.InboundDstPortsMap == nil {
+		t.Error("expected InboundDstPortsMap to be initialized")
+	}
+	
+	// Test port symmetry using hybrid map
+	sym := s.calculatePortSymmetry()
+	if sym != 30 {
+		t.Errorf("expected port symmetry 30, got %f", sym)
+	}
+
+	// Add 30 target start times
+	for i := 0; i < 30; i++ {
+		tk := TargetKey{IP: "1.1.1.1", Port: i}
+		s.AddTargetStartTime(tk, time.Unix(int64(i), 0))
+	}
+	if s.TargetLastTimesMap == nil {
+		t.Error("expected TargetLastTimesMap to be initialized")
+	}
+	if len(s.TargetLastTimes) != 29 { // First goes to FirstTarget
+		t.Errorf("expected 29 in slice, got %d", len(s.TargetLastTimes))
+	}
+	// Add same target start time again to verify it updates existing count/times instead of inserting new
+	tk := TargetKey{IP: "1.1.1.1", Port: 5}
+	s.AddTargetStartTime(tk, time.Unix(100, 0))
+	if len(s.TargetLastTimes) != 29 {
+		t.Errorf("expected size to remain 29, got %d", len(s.TargetLastTimes))
+	}
+}
+

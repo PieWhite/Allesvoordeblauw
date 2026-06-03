@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,6 +20,11 @@ type XGBoostModel interface {
 	PredictProba(input mat.SparseMatrix) (mat.Matrix, error)
 }
 
+type BenignIPInfo struct {
+	IP   string
+	Prob float64
+}
+
 type Detector struct {
 	TotalRecords int64
 	aggregator   *Aggregator
@@ -26,6 +32,7 @@ type Detector struct {
 
 	maxProbs      map[string]float64
 	maxFeatures   map[string][]float64
+	topBenign     []BenignIPInfo
 	explainer     *Explainer
 	probMutex     sync.Mutex
 	currentWindow atomic.Int64
@@ -48,6 +55,7 @@ func NewDetector(modelPath string) (*Detector, error) {
 		model:       loadedModel,
 		maxProbs:    make(map[string]float64),
 		maxFeatures: make(map[string][]float64),
+		topBenign:   make([]BenignIPInfo, 0, 10),
 		explainer:   explainer,
 	}, nil
 }
@@ -130,8 +138,9 @@ func (d *Detector) evaluateBatch(statsBatch []*IPStats) {
 	}
 
 	vectors := make([]mat.SparseVector, len(statsBatch))
+	features := make([]float64, 21)
 	for idx, stats := range statsBatch {
-		features := stats.ToMLVector()
+		stats.FillMLVector(features)
 		sv := make(mat.SparseVector)
 		for i, val := range features {
 			if val != 0 {
@@ -167,10 +176,67 @@ func (d *Detector) evaluateBatch(statsBatch []*IPStats) {
 
 		if currentMax, exists := d.maxProbs[ip]; !exists || prob > currentMax {
 			d.maxProbs[ip] = prob
-			d.maxFeatures[ip] = statsBatch[idx].ToMLVector()
+
+			if prob > 0.50 {
+				d.maxFeatures[ip] = statsBatch[idx].ToMLVector()
+				for i, info := range d.topBenign {
+					if info.IP == ip {
+						d.topBenign = append(d.topBenign[:i], d.topBenign[i+1:]...)
+						break
+					}
+				}
+			} else {
+				d.updateTopBenign(ip, prob, statsBatch[idx])
+			}
 		}
 	}
 	d.probMutex.Unlock()
+
+	for _, stats := range statsBatch {
+		RecycleIPStats(stats)
+	}
+}
+
+func (d *Detector) updateTopBenign(ip string, prob float64, stats *IPStats) {
+	foundIdx := -1
+	for i, info := range d.topBenign {
+		if info.IP == ip {
+			foundIdx = i
+			break
+		}
+	}
+
+	if foundIdx != -1 {
+		if prob > d.topBenign[foundIdx].Prob {
+			d.topBenign[foundIdx].Prob = prob
+			d.maxFeatures[ip] = stats.ToMLVector()
+			sort.Slice(d.topBenign, func(i, j int) bool {
+				return d.topBenign[i].Prob > d.topBenign[j].Prob
+			})
+		}
+		return
+	}
+
+	if len(d.topBenign) < 10 {
+		d.topBenign = append(d.topBenign, BenignIPInfo{IP: ip, Prob: prob})
+		d.maxFeatures[ip] = stats.ToMLVector()
+		sort.Slice(d.topBenign, func(i, j int) bool {
+			return d.topBenign[i].Prob > d.topBenign[j].Prob
+		})
+		return
+	}
+
+	minBenignProb := d.topBenign[9].Prob
+	if prob > minBenignProb {
+		evictedIP := d.topBenign[9].IP
+		delete(d.maxFeatures, evictedIP)
+
+		d.topBenign[9] = BenignIPInfo{IP: ip, Prob: prob}
+		d.maxFeatures[ip] = stats.ToMLVector()
+		sort.Slice(d.topBenign, func(i, j int) bool {
+			return d.topBenign[i].Prob > d.topBenign[j].Prob
+		})
+	}
 }
 
 func (d *Detector) Flush() {
@@ -190,24 +256,43 @@ func (d *Detector) CalculateResults() []models.MLResult {
 
 func (d *Detector) formatResults(probs map[string]float64) []models.MLResult {
 	const threshold = 0.50
-	results := make([]models.MLResult, 0, len(probs))
+	var realResults []models.MLResult
+
 	for ip, prob := range probs {
 		if d.Subnet != "" && !config.MatchSubnet(ip, d.Subnet) {
 			continue
 		}
-		var expl string
-		if prob > threshold && d.explainer != nil {
-			if feats, ok := d.maxFeatures[ip]; ok {
-				expl = d.explainer.FormatExplanation(feats)
+		if prob > threshold {
+			var expl string
+			if d.explainer != nil {
+				if feats, ok := d.maxFeatures[ip]; ok {
+					expl = d.explainer.FormatExplanation(feats)
+				}
 			}
+			realResults = append(realResults, models.MLResult{
+				IP:          ip,
+				Probability: prob * 100.0,
+				IsBotnet:    true,
+				Explanation: expl,
+			})
 		}
-		results = append(results, models.MLResult{
-			IP:          ip,
-			Probability: prob * 100.0,
-			IsBotnet:    prob > threshold,
-			Explanation: expl,
-		})
 	}
 
+	for _, info := range d.topBenign {
+		if d.Subnet != "" && !config.MatchSubnet(info.IP, d.Subnet) {
+			continue
+		}
+		if info.Prob <= threshold {
+			realResults = append(realResults, models.MLResult{
+				IP:          info.IP,
+				Probability: info.Prob * 100.0,
+				IsBotnet:    false,
+			})
+		}
+	}
+
+	totalUniqueIPs := len(probs)
+	results := make([]models.MLResult, totalUniqueIPs)
+	copy(results, realResults)
 	return results
 }

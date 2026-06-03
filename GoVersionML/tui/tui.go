@@ -54,10 +54,11 @@ func listenForFinished(finishedChan chan scanFinishedMsg) tea.Cmd {
 }
 
 type scanFinishedMsg struct {
-	results      []models.MLResult
-	totalRecords int64
-	duration     time.Duration
-	err          error
+	results               []models.MLResult
+	totalCommunicatingIPs int
+	totalRecords          int64
+	duration              time.Duration
+	err                   error
 }
 
 // Model defines the state of our TUI.
@@ -86,10 +87,11 @@ type Model struct {
 	scanReadBytes   int64
 
 	// Scan results fields
-	scanResults  []models.MLResult
-	totalRecords int64
-	scanError    error
-	scanDuration time.Duration
+	scanResults           []models.MLResult
+	totalCommunicatingIPs int
+	totalRecords          int64
+	scanError             error
+	scanDuration          time.Duration
 
 	// Full Log scroll fields
 	fullLogText  string
@@ -237,11 +239,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.scanError = msg.err
 		} else {
+			// Filter out dummy elements
+			var realResults []models.MLResult
+			for _, res := range msg.results {
+				if res.IP != "" {
+					realResults = append(realResults, res)
+				}
+			}
 			// Sort results descending by ML probability
-			sort.SliceStable(msg.results, func(i, j int) bool {
-				return msg.results[i].Probability > msg.results[j].Probability
+			sort.SliceStable(realResults, func(i, j int) bool {
+				return realResults[i].Probability > realResults[j].Probability
 			})
-			m.scanResults = msg.results
+			m.scanResults = realResults
+			m.totalCommunicatingIPs = msg.totalCommunicatingIPs
 			m.totalRecords = msg.totalRecords
 		}
 		m.state = stateResults
@@ -400,10 +410,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					duration := time.Since(start)
 
 					finishedChan <- scanFinishedMsg{
-						results:      results,
-						totalRecords: totalRecords,
-						duration:     duration,
-						err:          err,
+						results:               results,
+						totalCommunicatingIPs: len(results),
+						totalRecords:          totalRecords,
+						duration:              duration,
+						err:                   err,
 					}
 				}(m.scanPath, m.finishedChan, m.sharedBytesRead)
 
@@ -747,7 +758,7 @@ func (m Model) View() string {
 			}
 
 			sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Processed Records: %d", m.totalRecords)) + "\n")
-			sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Botnet IPs Identified: %d (out of %d total communicating IPs)", botnetCount, len(m.scanResults))) + "\n\n")
+			sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Botnet IPs Identified: %d (out of %d total communicating IPs)", botnetCount, m.totalCommunicatingIPs)) + "\n\n")
 
 			sb.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6")).Bold(true).Render("Top 10 Highest Scored IPs:") + "\n")
 
