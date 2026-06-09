@@ -33,7 +33,6 @@ func NewIPStats() *IPStats {
 	return &IPStats{}
 }
 
-// ToMLVector computes the final 21 float64 features expected by XGBoost V2.
 func (s *IPStats) ToMLVector() []float64 {
 	fc := float64(s.FlowCount)
 	if fc == 0 {
@@ -55,7 +54,6 @@ func (s *IPStats) ToMLVector() []float64 {
 
 	pctWellKnownPorts := (s.WellKnownPortCount / fc) * 100.0
 
-	// Pack and return the array — order matches extract_features_v2.py
 	return []float64{
 		fc,                             // 0:  flow_count
 		float64(len(s.UniqueDstIPs)),   // 1:  unique_dst_ips
@@ -92,7 +90,7 @@ func (s *IPStats) calculatePortSymmetry() float64 {
 }
 
 func (s *IPStats) calculateIATMetrics() (mean float64, variance float64, cv float64) {
-	totalItems := len(s.TargetStartTimes) // for the fillna(0) zeros
+	totalItems := len(s.TargetStartTimes)
 	for _, times := range s.TargetStartTimes {
 		if len(times) > 1 {
 			totalItems += len(times) - 1
@@ -102,7 +100,7 @@ func (s *IPStats) calculateIATMetrics() (mean float64, variance float64, cv floa
 	allDiffs := make([]float64, 0, totalItems)
 
 	for _, times := range s.TargetStartTimes {
-		allDiffs = append(allDiffs, 0) // Match Python fillna(0)
+		allDiffs = append(allDiffs, 0)
 		if len(times) > 1 {
 			sort.Float64s(times)
 			for i := 1; i < len(times); i++ {
@@ -121,7 +119,6 @@ func (s *IPStats) calculateIATMetrics() (mean float64, variance float64, cv floa
 	}
 	mean = sumDiffs / float64(len(allDiffs))
 
-	// (ddof=1, matches pandas .var() default)
 	var sumSqDiff float64
 	for _, d := range allDiffs {
 		sumSqDiff += (d - mean) * (d - mean)
@@ -130,7 +127,6 @@ func (s *IPStats) calculateIATMetrics() (mean float64, variance float64, cv floa
 		variance = sumSqDiff / float64(len(allDiffs)-1)
 	}
 
-	// Calculate CV
 	if mean > 0 {
 		cv = math.Sqrt(variance) / mean
 	}

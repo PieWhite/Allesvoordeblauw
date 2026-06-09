@@ -159,113 +159,33 @@ func TestExplainer_InvalidSplitOrEdgeCases(t *testing.T) {
 	})
 }
 
-func TestExplainer_FormatExplanation_Types(t *testing.T) {
-	// Let's create a tree that has multiple splits to accumulate contributions for different features.
-	// Feature index 0: flow_count
-	// Feature index 3: total_bytes
-	// Feature index 7: pct_tcp
-	// Feature index 12: avg_duration
-	
+func TestExplainer_FormatExplanation_Integration(t *testing.T) {
+	// Verify that FormatExplanation correctly:
+	// 1. Sorts and limits to the top 4 contributions.
+	// 2. Integrates with the custom feature formatting.
+	// 3. Joins the results.
 	trees := []ModelNode{
-		{
-			NodeID:         0,
-			Split:          "f0",
-			SplitCondition: 1000.0,
-			Yes:            1,
-			Children: []ModelNode{
-				{NodeID: 1, Leaf: floatPtr(1.0)},
-			},
-		},
-		{
-			NodeID:         0,
-			Split:          "f3",
-			SplitCondition: 10000000.0,
-			Yes:            1,
-			Children: []ModelNode{
-				{NodeID: 1, Leaf: floatPtr(5.0)},
-			},
-		},
-		{
-			NodeID:         0,
-			Split:          "f7",
-			SplitCondition: 1000.0,
-			Yes:            1,
-			Children: []ModelNode{
-				{NodeID: 1, Leaf: floatPtr(10.0)},
-			},
-		},
-		{
-			NodeID:         0,
-			Split:          "f12",
-			SplitCondition: 1000.0,
-			Yes:            1,
-			Children: []ModelNode{
-				{NodeID: 1, Leaf: floatPtr(2.0)},
-			},
-		},
+		{NodeID: 0, Split: "f0", SplitCondition: 10, Yes: 1, Children: []ModelNode{{NodeID: 1, Leaf: floatPtr(1.0)}}},
+		{NodeID: 0, Split: "f1", SplitCondition: 10, Yes: 1, Children: []ModelNode{{NodeID: 1, Leaf: floatPtr(2.0)}}},
+		{NodeID: 0, Split: "f2", SplitCondition: 10, Yes: 1, Children: []ModelNode{{NodeID: 1, Leaf: floatPtr(3.0)}}},
+		{NodeID: 0, Split: "f3", SplitCondition: 10, Yes: 1, Children: []ModelNode{{NodeID: 1, Leaf: floatPtr(4.0)}}},
+		{NodeID: 0, Split: "f4", SplitCondition: 10, Yes: 1, Children: []ModelNode{{NodeID: 1, Leaf: floatPtr(5.0)}}},
 	}
 
-	explainer := &Explainer{Trees: trees}
-	
-	features := make([]float64, 21)
-	features[0] = 120.0             // flow_count (should format as "120")
-	features[3] = 1536.0            // total_bytes (should format as "1.5KB")
-	features[7] = 85.5              // pct_tcp (should format as "85.5%")
-	features[12] = 0.0456           // avg_duration (should format as "0.046s")
+	explainer := &Explainer{
+		Trees:        trees,
+		FeatureNames: []string{"A", "B", "C", "D", "E"},
+	}
 
+	features := []float64{1.0, 2.0, 3.0, 4.0, 5.0}
 	explanation := explainer.FormatExplanation(features)
 
-	// Since contributions are sorted descending:
-	// f7 (pct_tcp) has contribution 10.0
-	// f3 (total_bytes) has contribution 5.0
-	// f12 (avg_duration) has contribution 2.0
-	// f0 (flow_count) has contribution 1.0
-	
-	if !strings.Contains(explanation, "pct_tcp (85.5%)") {
-		t.Errorf("expected pct_tcp percentage formatting, got: %s", explanation)
+	// Since f4 has the highest contribution, it is sorted first. 
+	// The fifth feature (f0 / "A") should be excluded as limit is 4.
+	expected := "Reasons: E (5.00), D (4.00), C (3.00), B (2.00)"
+	if explanation != expected {
+		t.Errorf("expected explanation %q, got %q", expected, explanation)
 	}
-	if !strings.Contains(explanation, "total_bytes (1.5KB)") {
-		t.Errorf("expected total_bytes formatting in KB, got: %s", explanation)
-	}
-	if !strings.Contains(explanation, "avg_duration (0.046s)") {
-		t.Errorf("expected avg_duration time formatting, got: %s", explanation)
-	}
-	if !strings.Contains(explanation, "flow_count (120)") {
-		t.Errorf("expected flow_count integer formatting, got: %s", explanation)
-	}
-
-	t.Run("Total bytes edge cases", func(t *testing.T) {
-		// Test MB and B formatting
-		bytesMBTree := []ModelNode{
-			{
-				NodeID:         0,
-				Split:          "f3",
-				SplitCondition: 10000000.0,
-				Yes:            1,
-				Children: []ModelNode{
-					{NodeID: 1, Leaf: floatPtr(5.0)},
-				},
-			},
-		}
-		
-		expMB := &Explainer{Trees: bytesMBTree}
-		
-		// 2.5 MB
-		featsMB := make([]float64, 21)
-		featsMB[3] = 2.5 * 1024 * 1024
-		explMB := expMB.FormatExplanation(featsMB)
-		if !strings.Contains(explMB, "total_bytes (2.5MB)") {
-			t.Errorf("expected total_bytes formatting in MB, got: %s", explMB)
-		}
-
-		// 256 B
-		featsB := make([]float64, 21)
-		featsB[3] = 256.0
-		explB := expMB.FormatExplanation(featsB)
-		if !strings.Contains(explB, "total_bytes (256B)") {
-			t.Errorf("expected total_bytes formatting in B, got: %s", explB)
-		}
-	})
 }
 
 func TestExplainer_FormatExplanation_EmptyContributions(t *testing.T) {
@@ -321,122 +241,151 @@ func TestExplainer_WeightedAverage(t *testing.T) {
 	}
 }
 
-func TestExplainer_PCAPFormatting(t *testing.T) {
-	// Let's create a tree with PCAP features
-	// Index 0: Header_Length (B formatting)
-	// Index 2: Rate (pps formatting)
-	// Index 3: fin_flag_number (proportion/percentage formatting)
-	// Index 10: syn_count (integer formatting)
-	// Index 29: Tot sum (byte KB/MB/B formatting)
-	// Index 35: IAT (time/seconds formatting)
-	// Index 38: Protocol Type (protocol translation: e.g. 6.0 -> TCP)
-	trees := []ModelNode{
-		{
-			NodeID:         0,
-			Split:          "f0",
-			SplitCondition: 99999999.0,
-			Yes:            1,
-			Children: []ModelNode{
-				{NodeID: 1, Leaf: floatPtr(1.0)},
-			},
-		},
-		{
-			NodeID:         0,
-			Split:          "f2",
-			SplitCondition: 99999999.0,
-			Yes:            1,
-			Children: []ModelNode{
-				{NodeID: 1, Leaf: floatPtr(2.0)},
-			},
-		},
-		{
-			NodeID:         0,
-			Split:          "f3",
-			SplitCondition: 99999999.0,
-			Yes:            1,
-			Children: []ModelNode{
-				{NodeID: 1, Leaf: floatPtr(3.0)},
-			},
-		},
-		{
-			NodeID:         0,
-			Split:          "f10",
-			SplitCondition: 99999999.0,
-			Yes:            1,
-			Children: []ModelNode{
-				{NodeID: 1, Leaf: floatPtr(4.0)},
-			},
-		},
-		{
-			NodeID:         0,
-			Split:          "f29",
-			SplitCondition: 99999999.0,
-			Yes:            1,
-			Children: []ModelNode{
-				{NodeID: 1, Leaf: floatPtr(5.0)},
-			},
-		},
-		{
-			NodeID:         0,
-			Split:          "f35",
-			SplitCondition: 99999999.0,
-			Yes:            1,
-			Children: []ModelNode{
-				{NodeID: 1, Leaf: floatPtr(6.0)},
-			},
-		},
-		{
-			NodeID:         0,
-			Split:          "f38",
-			SplitCondition: 99999999.0,
-			Yes:            1,
-			Children: []ModelNode{
-				{NodeID: 1, Leaf: floatPtr(7.0)},
-			},
+func TestExplainer_FeatureNameResolution(t *testing.T) {
+	// 1. Fallback to package-level FeatureNames
+	expDefault := &Explainer{
+		Trees: []ModelNode{
+			{NodeID: 0, Split: "f0", SplitCondition: 100.0, Yes: 1, Children: []ModelNode{{NodeID: 1, Leaf: floatPtr(1.0)}}},
 		},
 	}
+	// FeatureNames[0] is "flow_count". With default format, flow_count is an integer -> %.0f.
+	explDefault := expDefault.FormatExplanation([]float64{42.0})
+	if !strings.Contains(explDefault, "flow_count (42)") {
+		t.Errorf("expected fallback to default flow_count formatting, got %q", explDefault)
+	}
 
-	explainer := &Explainer{
-		Trees:        trees,
+	// 2. Custom PcapFeatureNames
+	expPcap := &Explainer{
+		Trees: []ModelNode{
+			{NodeID: 0, Split: "f0", SplitCondition: 100.0, Yes: 1, Children: []ModelNode{{NodeID: 1, Leaf: floatPtr(1.0)}}},
+		},
 		FeatureNames: PcapFeatureNames,
 	}
-
-	features := make([]float64, 39)
-	features[0] = 54.2              // Header_Length -> should show "54.2B"
-	features[2] = 2304.5            // Rate -> should show "2304.5 pps"
-	features[3] = 0.4578            // fin_flag_number -> ratio between 0 and 1, should show "45.8%"
-	features[10] = 120.0            // syn_count -> should show "120"
-	features[29] = 10.5 * 1024 * 1024 // Tot sum -> should show "10.5MB"
-	features[35] = 0.00456          // IAT -> should show "0.005s"
-	features[38] = 6.0              // Protocol Type -> should translate to "TCP"
-
-	explanation := explainer.FormatExplanation(features)
-
-	// Sort order is based on contribution weight:
-	// f38 (Protocol Type) -> 7.0
-	// f35 (IAT) -> 6.0
-	// f29 (Tot sum) -> 5.0
-	// f10 (syn_count) -> 4.0
-	// f3 (fin_flag_number) -> 3.0
-	// f2 (Rate) -> 2.0
-	// f0 (Header_Length) -> 1.0
-	// Explainer shows top 4 features (limit 4).
-
-	if !strings.Contains(explanation, "Protocol Type (TCP)") {
-		t.Errorf("expected Protocol Type TCP formatting, got: %s", explanation)
+	// PcapFeatureNames[0] is "Header_Length". With Header_Length format -> %.1fB.
+	explPcap := expPcap.FormatExplanation([]float64{64.0})
+	if !strings.Contains(explPcap, "Header_Length (64.0B)") {
+		t.Errorf("expected fallback to Pcap Header_Length formatting, got %q", explPcap)
 	}
-	if !strings.Contains(explanation, "IAT (0.005s)") {
-		t.Errorf("expected IAT formatting, got: %s", explanation)
-	}
-	if !strings.Contains(explanation, "Tot sum (10.5MB)") {
-		t.Errorf("expected Tot sum formatting, got: %s", explanation)
-	}
-	if !strings.Contains(explanation, "syn_count (120)") {
-		t.Errorf("expected syn_count formatting, got: %s", explanation)
+}
+
+func TestFeatureContribution_FormatValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		contrib  FeatureContribution
+		expected string
+	}{
+		{
+			name: "Percentage formatting pct_tcp",
+			contrib: FeatureContribution{
+				Name:  "pct_tcp",
+				Value: 12.34,
+			},
+			expected: "12.3%",
+		},
+		{
+			name: "Proportion to percentage conversion HTTP",
+			contrib: FeatureContribution{
+				Name:  "HTTP",
+				Value: 0.1234,
+			},
+			expected: "12.3%",
+		},
+		{
+			name: "Integer formatting flow_count",
+			contrib: FeatureContribution{
+				Name:  "flow_count",
+				Value: 123.45,
+			},
+			expected: "123",
+		},
+		{
+			name: "Bytes formatting B",
+			contrib: FeatureContribution{
+				Name:  "total_bytes",
+				Value: 512,
+			},
+			expected: "512B",
+		},
+		{
+			name: "Bytes formatting KB",
+			contrib: FeatureContribution{
+				Name:  "total_bytes",
+				Value: 1536,
+			},
+			expected: "1.5KB",
+		},
+		{
+			name: "Bytes formatting MB",
+			contrib: FeatureContribution{
+				Name:  "total_bytes",
+				Value: 1024 * 1024 * 3.5,
+			},
+			expected: "3.5MB",
+		},
+		{
+			name: "Time duration avg_duration",
+			contrib: FeatureContribution{
+				Name:  "avg_duration",
+				Value: 0.0456,
+			},
+			expected: "0.046s",
+		},
+		{
+			name: "Size in bytes Header_Length",
+			contrib: FeatureContribution{
+				Name:  "Header_Length",
+				Value: 64,
+			},
+			expected: "64.0B",
+		},
+		{
+			name: "Rate pps",
+			contrib: FeatureContribution{
+				Name:  "Rate",
+				Value: 1000.5,
+			},
+			expected: "1000.5 pps",
+		},
+		{
+			name: "Protocol Type TCP",
+			contrib: FeatureContribution{
+				Name:  "Protocol Type",
+				Value: 6.0,
+			},
+			expected: "TCP",
+		},
+		{
+			name: "Protocol Type UDP",
+			contrib: FeatureContribution{
+				Name:  "Protocol Type",
+				Value: 17.0,
+			},
+			expected: "UDP",
+		},
+		{
+			name: "Protocol Type Unknown",
+			contrib: FeatureContribution{
+				Name:  "Protocol Type",
+				Value: 99.0,
+			},
+			expected: "99",
+		},
+		{
+			name: "Default formatting unknown feature",
+			contrib: FeatureContribution{
+				Name:  "unknown_feat",
+				Value: 12.345,
+			},
+			expected: "12.35",
+		},
 	}
 
-	// Verify limit works and lower contribution ones aren't in explanation
-	if strings.Contains(explanation, "Header_Length") {
-		t.Errorf("expected Header_Length to be excluded due to top 4 limit, got: %s", explanation)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := tt.contrib.FormatValue()
+			if actual != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, actual)
+			}
+		})
 	}
 }

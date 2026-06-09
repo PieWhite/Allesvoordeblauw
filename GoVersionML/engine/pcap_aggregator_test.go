@@ -115,7 +115,7 @@ func TestPcapAggregator(t *testing.T) {
 	}
 
 	// Flush old windows before 1673536800
-	flushed := agg.ExtractAndFlushBefore(1673536800)
+	flushed := agg.FlushWindow(1673536800)
 	if len(flushed) != 3 {
 		t.Errorf("expected 3 flushed stats from first window, got %d", len(flushed))
 	}

@@ -5,8 +5,6 @@ import (
 	"fmt"
 )
 
-// AppConfig holds the configuration state for the application.
-// This struct encapsulates configuration, replacing the loose global parsing.
 type AppConfig struct {
 	OutputFile  string
 	InputPath   string
@@ -15,9 +13,6 @@ type AppConfig struct {
 	SkipConfirm bool
 }
 
-// ParseFlags reads command-line flags and arguments, populating the AppConfig.
-// ParseArgs takes a slice of strings (like os.Args[1:]) and a FlagSet.
-// This makes it 100% testable without global hacks.
 func (c *AppConfig) ParseArgs(args []string) error {
 	fs := flag.NewFlagSet("config", flag.ContinueOnError)
 

@@ -86,7 +86,7 @@ func (d *PcapDetector) updateMaxWindowAndFlush(win int64) {
 }
 
 func (d *PcapDetector) flushOldWindows(threshold int64) {
-	flushed := d.pcapAggregator.ExtractAndFlushBefore(threshold)
+	flushed := d.pcapAggregator.FlushWindow(threshold)
 	if len(flushed) == 0 {
 		return
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 )
 
 // FeatureNames maps index f0 through f20 back to their human-readable names.
@@ -199,6 +200,49 @@ func (e *Explainer) traceTree(node ModelNode, x []float64, contributions *[]floa
 	}
 }
 
+// FormatValue returns the human-readable string representation of the feature value.
+func (c FeatureContribution) FormatValue() string {
+	switch c.Name {
+	case "pct_tcp", "pct_udp", "pct_icmp", "pct_well_known_ports", "pct_high_ports", "pct_syn_only", "pct_rst":
+		return fmt.Sprintf("%.1f%%", c.Value)
+	case "fin_flag_number", "syn_flag_number", "rst_flag_number", "psh_flag_number", "ack_flag_number", "ece_flag_number", "cwr_flag_number",
+		"IGMP", "HTTPS", "HTTP", "Telnet", "DNS", "SMTP", "SSH", "IRC", "TCP", "UDP", "DHCP", "ARP", "ICMP", "IPv", "LLC":
+		return fmt.Sprintf("%.1f%%", c.Value*100.0)
+	case "flow_count", "unique_dst_ips", "unique_dst_ports", "total_packets",
+		"syn_count", "ack_count", "fin_count", "rst_count", "Number", "Time_To_Live":
+		return fmt.Sprintf("%.0f", c.Value)
+	case "total_bytes", "Tot sum":
+		if c.Value >= 1024*1024 {
+			return fmt.Sprintf("%.1fMB", c.Value/(1024*1024))
+		} else if c.Value >= 1024 {
+			return fmt.Sprintf("%.1fKB", c.Value/1024)
+		} else {
+			return fmt.Sprintf("%.0fB", c.Value)
+		}
+	case "avg_duration", "iat_mean", "IAT":
+		return fmt.Sprintf("%.3fs", c.Value)
+	case "Header_Length", "Min", "Max", "AVG", "Tot size":
+		return fmt.Sprintf("%.1fB", c.Value)
+	case "Rate":
+		return fmt.Sprintf("%.1f pps", c.Value)
+	case "Protocol Type":
+		switch int(c.Value) {
+		case 6:
+			return "TCP"
+		case 17:
+			return "UDP"
+		case 1:
+			return "ICMP"
+		case 2:
+			return "IGMP"
+		default:
+			return fmt.Sprintf("%.0f", c.Value)
+		}
+	default:
+		return fmt.Sprintf("%.2f", c.Value)
+	}
+}
+
 func (e *Explainer) FormatExplanation(features []float64) string {
 	contribs := e.Explain(features)
 	if len(contribs) == 0 {
@@ -213,61 +257,12 @@ func (e *Explainer) FormatExplanation(features []float64) string {
 	var parts []string
 	for i := 0; i < limit; i++ {
 		c := contribs[i]
-
-		valStr := ""
-		switch c.Name {
-		case "pct_tcp", "pct_udp", "pct_icmp", "pct_well_known_ports", "pct_high_ports", "pct_syn_only", "pct_rst":
-			valStr = fmt.Sprintf("%.1f%%", c.Value)
-		case "fin_flag_number", "syn_flag_number", "rst_flag_number", "psh_flag_number", "ack_flag_number", "ece_flag_number", "cwr_flag_number",
-			"IGMP", "HTTPS", "HTTP", "Telnet", "DNS", "SMTP", "SSH", "IRC", "TCP", "UDP", "DHCP", "ARP", "ICMP", "IPv", "LLC":
-			valStr = fmt.Sprintf("%.1f%%", c.Value*100.0)
-		case "flow_count", "unique_dst_ips", "unique_dst_ports", "total_packets",
-			"syn_count", "ack_count", "fin_count", "rst_count", "Number", "Time_To_Live":
-			valStr = fmt.Sprintf("%.0f", c.Value)
-		case "total_bytes", "Tot sum":
-			if c.Value >= 1024*1024 {
-				valStr = fmt.Sprintf("%.1fMB", c.Value/(1024*1024))
-			} else if c.Value >= 1024 {
-				valStr = fmt.Sprintf("%.1fKB", c.Value/1024)
-			} else {
-				valStr = fmt.Sprintf("%.0fB", c.Value)
-			}
-		case "avg_duration", "iat_mean", "IAT":
-			valStr = fmt.Sprintf("%.3fs", c.Value)
-		case "Header_Length", "Min", "Max", "AVG", "Tot size":
-			valStr = fmt.Sprintf("%.1fB", c.Value)
-		case "Rate":
-			valStr = fmt.Sprintf("%.1f pps", c.Value)
-		case "Protocol Type":
-			switch int(c.Value) {
-			case 6:
-				valStr = "TCP"
-			case 17:
-				valStr = "UDP"
-			case 1:
-				valStr = "ICMP"
-			case 2:
-				valStr = "IGMP"
-			default:
-				valStr = fmt.Sprintf("%.0f", c.Value)
-			}
-		default:
-			valStr = fmt.Sprintf("%.2f", c.Value)
-		}
-
-		parts = append(parts, fmt.Sprintf("%s (%s)", c.Name, valStr))
+		parts = append(parts, fmt.Sprintf("%s (%s)", c.Name, c.FormatValue()))
 	}
 
 	if len(parts) == 0 {
 		return "unknown reasons"
 	}
 
-	explanation := "Reasons: "
-	for i, part := range parts {
-		if i > 0 {
-			explanation += ", "
-		}
-		explanation += part
-	}
-	return explanation
+	return "Reasons: " + strings.Join(parts, ", ")
 }
