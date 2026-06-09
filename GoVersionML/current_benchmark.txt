@@ -1,2 +1,0 @@
-﻿PASS
-ok  	goversion/main	0.427s
