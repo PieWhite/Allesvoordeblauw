@@ -200,3 +200,87 @@ func TestResolveModelPath(t *testing.T) {
 		}
 	})
 }
+
+func TestStreamFnFor(t *testing.T) {
+	gotJSON := streamFnFor("data.json")
+	if gotJSON == nil {
+		t.Error("expected non-nil stream function for .json")
+	}
+	gotNDJSON := streamFnFor("data.ndjson")
+	if gotNDJSON == nil {
+		t.Error("expected non-nil stream function for .ndjson")
+	}
+}
+
+func TestGetExistingPath_Fallback(t *testing.T) {
+	got := getExistingPath("definitely_nonexistent_file_xyz.json")
+	if got != "../definitely_nonexistent_file_xyz.json" {
+		t.Errorf("expected fallback path to prepend '../', got %q", got)
+	}
+}
+
+func TestRunDirectoryPipeline_ErrorsAndSuccess(t *testing.T) {
+	t.Run("Nonexistent Directory", func(t *testing.T) {
+		cfg := &config.AppConfig{
+			InputPath: "nonexistent_directory_xyz",
+		}
+		_, _, err := RunPipelineForInput(cfg)
+		if err == nil {
+			t.Fatal("expected error for nonexistent directory, got nil")
+		}
+	})
+
+	t.Run("Directory with no supported files", func(t *testing.T) {
+		tempDir := t.TempDir()
+		unsupported := filepath.Join(tempDir, "readme.txt")
+		if err := os.WriteFile(unsupported, []byte("hello"), 0o644); err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+
+		cfg := &config.AppConfig{
+			InputPath: tempDir,
+		}
+		_, _, err := RunPipelineForInput(cfg)
+		if err == nil {
+			t.Fatal("expected error for no supported files, got nil")
+		}
+		if !strings.Contains(err.Error(), "no .json, .ndjson or .pcap files found in directory") {
+			t.Errorf("expected 'no supported files' error, got %v", err)
+		}
+	})
+
+	t.Run("Directory with files, SkipConfirm=true", func(t *testing.T) {
+		tempDir := t.TempDir()
+		jsonFile := filepath.Join(tempDir, "data.json")
+		if err := os.WriteFile(jsonFile, []byte(`[{"first": "2026-05-02T15:04:05.000", "last": "2026-05-02T15:05:05.000", "src4_addr": "1.2.3.4"}]`), 0o644); err != nil {
+			t.Fatalf("failed to create temp json: %v", err)
+		}
+		ndjsonFile := filepath.Join(tempDir, "data.ndjson")
+		if err := os.WriteFile(ndjsonFile, []byte(`{"first": "2026-05-02T15:04:05.000", "last": "2026-05-02T15:05:05.000", "src4_addr": "1.2.3.4"}\n`), 0o644); err != nil {
+			t.Fatalf("failed to create temp ndjson: %v", err)
+		}
+		pcapFile := filepath.Join(tempDir, "data.pcap")
+		if err := os.WriteFile(pcapFile, []byte(`not-a-real-pcap`), 0o644); err != nil {
+			t.Fatalf("failed to create temp pcap: %v", err)
+		}
+
+		originalSilence := Silence
+		Silence = true
+		t.Cleanup(func() { Silence = originalSilence })
+
+		cfg := &config.AppConfig{
+			InputPath:   tempDir,
+			SkipConfirm: true,
+		}
+
+		results, records, err := RunPipelineForInput(cfg)
+		if err != nil {
+			t.Fatalf("expected no error running directory pipeline, got %v", err)
+		}
+		if records < 0 {
+			t.Errorf("expected non-negative records count, got %d", records)
+		}
+		_ = results
+	})
+}
+

@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"errors"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -583,3 +586,381 @@ func TestModel_FileBrowser_ViewportScrolling(t *testing.T) {
 		t.Errorf("expected viewport range to adjust to Showing 9-13 of 15, view: %s", viewAfterMove)
 	}
 }
+
+func TestGetScanTotalSizeAndCounts(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Write files
+	writeTemp := func(name string, size int) string {
+		p := filepath.Join(tempDir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("failed to mkdir: %v", err)
+		}
+		if err := os.WriteFile(p, make([]byte, size), 0o644); err != nil {
+			t.Fatalf("failed to write: %v", err)
+		}
+		return p
+	}
+
+	f1 := writeTemp("a.json", 10)
+	f2 := writeTemp("b.ndjson", 20)
+	f3 := writeTemp("c.pcap", 30)
+	writeTemp("d.txt", 40) // unsupported
+	writeTemp("sub/e.json", 50)
+
+	m := NewModel()
+
+	// 1. Nonexistent path
+	m.scanPath = filepath.Join(tempDir, "nonexistent.json")
+	if sz := m.getScanTotalSize(); sz != 0 {
+		t.Errorf("expected 0 for nonexistent, got %d", sz)
+	}
+	c1, c2, c3 := m.getScanFileCounts()
+	if c1 != 0 || c2 != 0 || c3 != 0 {
+		t.Errorf("expected 0 counts for nonexistent, got %d,%d,%d", c1, c2, c3)
+	}
+
+	// 2. Single file path
+	m.scanPath = f1
+	if sz := m.getScanTotalSize(); sz != 10 {
+		t.Errorf("expected 10, got %d", sz)
+	}
+	c1, c2, c3 = m.getScanFileCounts()
+	if c1 != 1 || c2 != 0 || c3 != 0 {
+		t.Errorf("expected 1,0,0, got %d,%d,%d", c1, c2, c3)
+	}
+
+	m.scanPath = f2
+	c1, c2, c3 = m.getScanFileCounts()
+	if c1 != 0 || c2 != 1 || c3 != 0 {
+		t.Errorf("expected 0,1,0, got %d,%d,%d", c1, c2, c3)
+	}
+
+	m.scanPath = f3
+	c1, c2, c3 = m.getScanFileCounts()
+	if c1 != 0 || c2 != 0 || c3 != 1 {
+		t.Errorf("expected 0,0,1, got %d,%d,%d", c1, c2, c3)
+	}
+
+	// 3. Directory path
+	m.scanPath = tempDir
+	// Total size should sum: a.json (10) + b.ndjson (20) + c.pcap (30) + sub/e.json (50) = 110
+	if sz := m.getScanTotalSize(); sz != 110 {
+		t.Errorf("expected 110, got %d", sz)
+	}
+	c1, c2, c3 = m.getScanFileCounts()
+	if c1 != 2 || c2 != 1 || c3 != 1 {
+		t.Errorf("expected 2,1,1, got %d,%d,%d", c1, c2, c3)
+	}
+
+	// 4. Single file unsupported
+	m.scanPath = filepath.Join(tempDir, "d.txt")
+	c1, c2, c3 = m.getScanFileCounts()
+	if c1 != 0 || c2 != 0 || c3 != 0 {
+		t.Errorf("expected 0,0,0, got %d,%d,%d", c1, c2, c3)
+	}
+}
+
+func TestModel_View_AllStates(t *testing.T) {
+	t.Run("stateFileBrowser Empty and Full", func(t *testing.T) {
+		m := NewModel()
+		m.state = stateFileBrowser
+		m.currentDir = "/test"
+		m.entries = []FileEntry{}
+		view := m.View()
+		if !strings.Contains(view, "(Empty Directory)") {
+			t.Error("expected Empty Directory indicator")
+		}
+
+		m.entries = []FileEntry{
+			{Name: "..", IsDir: true},
+			{Name: "sub", IsDir: true},
+			{Name: "data.json", IsDir: false, Size: 1024},
+			{Name: "data.ndjson", IsDir: false, Size: 2048},
+			{Name: "data.pcap", IsDir: false, Size: 3072},
+			{Name: "readme.txt", IsDir: false, Size: 50},
+		}
+		m.fileCursor = 2
+		m.height = 10 // force viewport scroll rendering
+		m.width = 40
+		viewFull := m.View()
+		if !strings.Contains(viewFull, "data.json") {
+			t.Error("expected data.json in view")
+		}
+	})
+
+	t.Run("stateConfirmSelection States", func(t *testing.T) {
+		m := NewModel()
+		m.state = stateConfirmSelection
+		m.scanPath = "/test/file.json"
+		m.selectedOption = 0
+		viewSingle := m.View()
+		if !strings.Contains(viewSingle, "Proceed with file.json?") {
+			t.Error("expected single file confirmation prompt")
+		}
+
+		m.selectedOption = 1
+		m.scanPath = "/test/myfolder"
+		m.scanJSONCount = 5
+		m.scanNDJSONCount = 10
+		m.scanPCAPCount = 15
+		viewFolder := m.View()
+		if !strings.Contains(viewFolder, "Proceed with scanning folder myfolder?") {
+			t.Error("expected folder confirmation prompt")
+		}
+		if !strings.Contains(viewFolder, "JSON files:   5") {
+			t.Error("expected JSON files count in folder confirmation view")
+		}
+	})
+
+	t.Run("stateScanning States", func(t *testing.T) {
+		m := NewModel()
+		m.state = stateScanning
+		m.scanPath = "/test/file.json"
+		m.selectedOption = 0
+		m.scanTotalBytes = 1000
+		m.scanReadBytes = 450
+		view := m.View()
+		if !strings.Contains(view, "Pencilgon Scan in Progress...") {
+			t.Error("expected Scanning state view title")
+		}
+		if !strings.Contains(view, "45.0%") {
+			t.Error("expected percentage calculation in scan progress view")
+		}
+
+		m.selectedOption = 1
+		m.scanJSONCount = 2
+		m.scanNDJSONCount = 3
+		m.scanPCAPCount = 4
+		viewFolder := m.View()
+		if !strings.Contains(viewFolder, "Contains: 2 JSON, 3 NDJSON, 4 PCAP files") {
+			t.Error("expected folder counts in scanning view")
+		}
+	})
+
+	t.Run("stateResults States", func(t *testing.T) {
+		m := NewModel()
+		m.state = stateResults
+		m.scanPath = "/test/file.json"
+
+		// 1. With error
+		m.scanError = errors.New("something went wrong")
+		viewErr := m.View()
+		if !strings.Contains(viewErr, "Scan Failed:") || !strings.Contains(viewErr, "something went wrong") {
+			t.Error("expected failure message in results view")
+		}
+
+		// 2. Success, 0 results
+		m.scanError = nil
+		m.scanResults = []models.MLResult{}
+		m.totalRecords = 0
+		viewZero := m.View()
+		if !strings.Contains(viewZero, "(No communicating IPs found)") {
+			t.Error("expected no communicating IPs indicator")
+		}
+
+		// 3. Success, multiple results (botnet and benign)
+		m.scanResults = []models.MLResult{
+			{IP: "1.2.3.4", Probability: 99.9, IsBotnet: true},
+			{IP: "5.6.7.8", Probability: 1.2, IsBotnet: false},
+		}
+		m.totalRecords = 100
+		viewResults := m.View()
+		if !strings.Contains(viewResults, "Processed Records: 100") {
+			t.Error("expected total records display")
+		}
+		if !strings.Contains(viewResults, "IP: 1.2.3.4") || !strings.Contains(viewResults, "BOTNET") {
+			t.Error("expected botnet IP log")
+		}
+		if !strings.Contains(viewResults, "IP: 5.6.7.8") || !strings.Contains(viewResults, "BENIGN") {
+			t.Error("expected benign IP log")
+		}
+	})
+
+	t.Run("stateFullLog States", func(t *testing.T) {
+		m := NewModel()
+		m.state = stateFullLog
+		m.fullLogText = "row1\nrow2\nrow3\nrow4\nrow5\nrow6\nrow7\nrow8\nrow9\nrow10\nrow11\nrow12\nrow13\nrow14\nrow15\nrow16\nrow17\nrow18\nrow19\nrow20\nrow21\nrow22\nrow23\nrow24\nrow25"
+		m.logScrollRow = 2
+		m.height = 15 // forces scrollbar to render
+		m.width = 50
+		view := m.View()
+		if !strings.Contains(view, "Pencilgon Full Scan Log") {
+			t.Error("expected Full Scan Log view title")
+		}
+		if !strings.Contains(view, "row3") { // starting from scroll row 2 (0-indexed)
+			t.Error("expected row3 in scrolled view")
+		}
+	})
+}
+
+func TestModel_Update_KeypressEscCases(t *testing.T) {
+	tests := []struct {
+		name          string
+		state         sessionState
+		expectedState sessionState
+	}{
+		{
+			name:          "esc on stateScanning is ignored",
+			state:         stateScanning,
+			expectedState: stateScanning,
+		},
+		{
+			name:          "esc on stateConfirmSelection goes to browser",
+			state:         stateConfirmSelection,
+			expectedState: stateFileBrowser,
+		},
+		{
+			name:          "esc on stateResults goes to browser",
+			state:         stateResults,
+			expectedState: stateFileBrowser,
+		},
+		{
+			name:          "esc on stateFullLog goes to results",
+			state:         stateFullLog,
+			expectedState: stateResults,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewModel()
+			m.state = tt.state
+			m.scanPath = "/some/path"
+			m.scanResults = []models.MLResult{{IP: "1.1.1.1"}}
+			m.totalRecords = 5
+
+			updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+			mResult, ok := updatedModel.(Model)
+			if !ok {
+				t.Fatalf("expected updated model to be Model")
+			}
+			if mResult.state != tt.expectedState {
+				t.Errorf("expected state %v, got %v", tt.expectedState, mResult.state)
+			}
+			if tt.state == stateResults && mResult.scanResults != nil {
+				t.Error("expected scanResults to be cleared")
+			}
+			if tt.state == stateConfirmSelection && mResult.scanPath != "" {
+				t.Error("expected scanPath to be cleared")
+			}
+		})
+	}
+}
+
+func TestModel_Update_FileBrowserNavigationEdgeCases(t *testing.T) {
+	m := NewModel()
+	m.state = stateFileBrowser
+	m.entries = []FileEntry{
+		{Name: "..", IsDir: true},
+		{Name: "a.json", IsDir: false},
+		{Name: "b.json", IsDir: false},
+	}
+
+	// 1. Move up from index 0 should wrap around to index 2 (last)
+	m.fileCursor = 0
+	upModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	upResult := upModel.(Model)
+	if upResult.fileCursor != 2 {
+		t.Errorf("expected wrap-around up to 2, got %d", upResult.fileCursor)
+	}
+
+	// 2. Move down from index 2 should wrap around to index 0 (first)
+	m.fileCursor = 2
+	downModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	downResult := downModel.(Model)
+	if downResult.fileCursor != 0 {
+		t.Errorf("expected wrap-around down to 0, got %d", downResult.fileCursor)
+	}
+
+	// 3. Selection key 'x' on Directory while in Single File Mode (0) should be ignored
+	m.selectedOption = 0
+	m.fileCursor = 0 // ".." which is a directory
+	xDirModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	xDirResult := xDirModel.(Model)
+	if xDirResult.state != stateFileBrowser {
+		t.Errorf("expected state to remain fileBrowser, got %v", xDirResult.state)
+	}
+
+	// 4. Selection key 'x' on File while in Folder Mode (1) should be ignored
+	m.selectedOption = 1
+	m.fileCursor = 1 // "a.json" which is a file
+	xFileModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	xFileResult := xFileModel.(Model)
+	if xFileResult.state != stateFileBrowser {
+		t.Errorf("expected state to remain fileBrowser, got %v", xFileResult.state)
+	}
+
+	// 5. Selection key 'x' on ".." in Folder Mode should be ignored
+	m.selectedOption = 1
+	m.fileCursor = 0 // ".." which is a directory but parent directory indicator
+	xParentModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	xParentResult := xParentModel.(Model)
+	if xParentResult.state != stateFileBrowser {
+		t.Errorf("expected state to remain fileBrowser, got %v", xParentResult.state)
+	}
+}
+
+func TestModel_Update_FullLogScrollCommands(t *testing.T) {
+	m := NewModel()
+	m.state = stateFullLog
+	m.fullLogText = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25"
+	m.height = 15 // maxLinesToShow = 15 - 10 = 5. maxScroll = 25 - 5 = 20.
+	m.logScrollRow = 10
+
+	// 1. pgup / ctrl+u should scroll up by 10 rows
+	pgupModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("pgup")})
+	if pgupModel.(Model).logScrollRow != 0 {
+		t.Errorf("expected scroll row 0, got %d", pgupModel.(Model).logScrollRow)
+	}
+
+	m.logScrollRow = 10
+	ctrlUModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	if ctrlUModel.(Model).logScrollRow != 0 {
+		t.Errorf("expected scroll row 0, got %d", ctrlUModel.(Model).logScrollRow)
+	}
+
+	// 2. pgdown / ctrl+d should scroll down by 10 rows
+	m.logScrollRow = 5
+	pgdownModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("pgdown")})
+	if pgdownModel.(Model).logScrollRow != 15 {
+		t.Errorf("expected scroll row 15, got %d", pgdownModel.(Model).logScrollRow)
+	}
+
+	m.logScrollRow = 5
+	ctrlDModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if ctrlDModel.(Model).logScrollRow != 15 {
+		t.Errorf("expected scroll row 15, got %d", ctrlDModel.(Model).logScrollRow)
+	}
+}
+
+func TestStart(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	ProgramOptions = []tea.ProgramOption{
+		tea.WithInput(r),
+		tea.WithOutput(io.Discard),
+	}
+	t.Cleanup(func() {
+		ProgramOptions = nil
+	})
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		w.Write([]byte("q"))
+	}()
+
+	path, err := Start()
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if path != "" {
+		t.Errorf("expected empty path from cancelled Start run, got %q", path)
+	}
+}
+

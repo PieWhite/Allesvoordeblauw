@@ -947,6 +947,8 @@ func formatSize(b int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
+var ProgramOptions []tea.ProgramOption
+
 // Start launches the Bubble Tea program and returns the confirmed path to scan.
 func Start() (string, error) {
 	// Mute global log outputs to prevent TUI terminal scrolling/drawing corruption
@@ -955,7 +957,7 @@ func Start() (string, error) {
 	defer log.SetOutput(originalLogOutput)
 
 	m := NewModel()
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, ProgramOptions...)
 	finalModel, err := p.Run()
 	if err != nil {
 		return "", err
