@@ -6,8 +6,8 @@ import (
 
 // HyperLogLog implements an extremely memory-efficient unique element cardinality estimator.
 type HyperLogLog struct {
-	m    int
-	reg  []uint8
+	m   int
+	reg []uint8
 }
 
 // NewHyperLogLog creates a new estimator with 2^precision registers.
@@ -86,4 +86,3 @@ func (h *HyperLogLog) Merge(other *HyperLogLog) {
 		}
 	}
 }
-

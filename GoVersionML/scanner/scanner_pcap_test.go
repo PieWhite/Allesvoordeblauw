@@ -20,12 +20,12 @@ func makeMockPcap(t *testing.T, isBigEndian bool, numPackets int) []byte {
 		byteOrder = binary.BigEndian
 	}
 	byteOrder.PutUint32(globalHdr[0:4], 0xa1b2c3d4) // Magic (correctly encodes swapped bytes when BigEndian)
-	byteOrder.PutUint16(globalHdr[4:6], 2)   // Major Version
-	byteOrder.PutUint16(globalHdr[6:8], 4)   // Minor Version
-	byteOrder.PutUint32(globalHdr[8:12], 0)  // Gmt to local correction
-	byteOrder.PutUint32(globalHdr[12:16], 0) // Accuracy of timestamps
-	byteOrder.PutUint32(globalHdr[16:20], 65535) // Max octets allowed per packet
-	byteOrder.PutUint32(globalHdr[20:24], 1) // LinkType (1 = Ethernet)
+	byteOrder.PutUint16(globalHdr[4:6], 2)          // Major Version
+	byteOrder.PutUint16(globalHdr[6:8], 4)          // Minor Version
+	byteOrder.PutUint32(globalHdr[8:12], 0)         // Gmt to local correction
+	byteOrder.PutUint32(globalHdr[12:16], 0)        // Accuracy of timestamps
+	byteOrder.PutUint32(globalHdr[16:20], 65535)    // Max octets allowed per packet
+	byteOrder.PutUint32(globalHdr[20:24], 1)        // LinkType (1 = Ethernet)
 
 	buf.Write(globalHdr)
 
@@ -34,38 +34,38 @@ func makeMockPcap(t *testing.T, isBigEndian bool, numPackets int) []byte {
 		// Ethernet Header (14 bytes)
 		0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // Dest MAC
 		0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, // Source MAC
-		0x08, 0x00,                         // EtherType (IPv4)
+		0x08, 0x00, // EtherType (IPv4)
 
 		// IPv4 Header (20 bytes)
-		0x45,                               // Version (4) & IHL (5 -> 20 bytes)
-		0x00,                               // Differentiated Services
-		0x00, 0x28,                         // Total Length (40 bytes = 20B IP + 20B TCP)
-		0x12, 0x34,                         // Identification
-		0x40, 0x00,                         // Flags (Don't Fragment) & Fragment Offset
-		0x40,                               // TTL (64)
-		0x06,                               // Protocol (6 = TCP)
-		0x00, 0x00,                         // Header Checksum
-		192, 168, 1, 1,                     // Source IP (192.168.1.1)
-		10, 0, 0, 1,                        // Destination IP (10.0.0.1)
+		0x45,       // Version (4) & IHL (5 -> 20 bytes)
+		0x00,       // Differentiated Services
+		0x00, 0x28, // Total Length (40 bytes = 20B IP + 20B TCP)
+		0x12, 0x34, // Identification
+		0x40, 0x00, // Flags (Don't Fragment) & Fragment Offset
+		0x40,       // TTL (64)
+		0x06,       // Protocol (6 = TCP)
+		0x00, 0x00, // Header Checksum
+		192, 168, 1, 1, // Source IP (192.168.1.1)
+		10, 0, 0, 1, // Destination IP (10.0.0.1)
 
 		// TCP Header (20 bytes)
-		0x30, 0x39,                         // Source Port (12345)
-		0x00, 0x50,                         // Destination Port (80)
-		0x00, 0x00, 0x00, 0x01,             // Sequence Number
-		0x00, 0x00, 0x00, 0x02,             // Acknowledgment Number
-		0x50,                               // Data Offset (5 -> 20 bytes) & Reserved
-		0x02,                               // TCP Flags (0x02 = SYN)
-		0x10, 0x00,                         // Window Size
-		0x00, 0x00,                         // Checksum
-		0x00, 0x00,                         // Urgent Pointer
+		0x30, 0x39, // Source Port (12345)
+		0x00, 0x50, // Destination Port (80)
+		0x00, 0x00, 0x00, 0x01, // Sequence Number
+		0x00, 0x00, 0x00, 0x02, // Acknowledgment Number
+		0x50,       // Data Offset (5 -> 20 bytes) & Reserved
+		0x02,       // TCP Flags (0x02 = SYN)
+		0x10, 0x00, // Window Size
+		0x00, 0x00, // Checksum
+		0x00, 0x00, // Urgent Pointer
 	}
 
 	// 3. Write multiple packet entries
 	for i := 0; i < numPackets; i++ {
 		pktHdr := make([]byte, 16)
-		byteOrder.PutUint32(pktHdr[0:4], 1673536740 + uint32(i)) // Seconds
-		byteOrder.PutUint32(pktHdr[4:8], 100000 + uint32(i))    // Microseconds
-		byteOrder.PutUint32(pktHdr[8:12], uint32(len(payload))) // Captured packet size
+		byteOrder.PutUint32(pktHdr[0:4], 1673536740+uint32(i))   // Seconds
+		byteOrder.PutUint32(pktHdr[4:8], 100000+uint32(i))       // Microseconds
+		byteOrder.PutUint32(pktHdr[8:12], uint32(len(payload)))  // Captured packet size
 		byteOrder.PutUint32(pktHdr[12:16], uint32(len(payload))) // Original packet size
 
 		buf.Write(pktHdr)
@@ -160,7 +160,7 @@ func TestStreamPCAP_UnsupportedLinkType(t *testing.T) {
 	var buf bytes.Buffer
 	globalHdr := make([]byte, 24)
 	binary.LittleEndian.PutUint32(globalHdr[0:4], 0xa1b2c3d4) // Magic
-	binary.LittleEndian.PutUint32(globalHdr[20:24], 105)       // LinkType (105 is not Ethernet)
+	binary.LittleEndian.PutUint32(globalHdr[20:24], 105)      // LinkType (105 is not Ethernet)
 	buf.Write(globalHdr)
 
 	reader := bytes.NewReader(buf.Bytes())

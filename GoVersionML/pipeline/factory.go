@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"goversion/config"
 	"goversion/engine"
@@ -148,29 +150,20 @@ func confirmDirectoryParse(cf classifiedFiles) error {
 }
 
 func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]models.MLResult, int, int64, error) {
-	var netflowDetector *engine.Detector
-	var pcapDetector *engine.PcapDetector
-	var err error
-
+	// Pre-load models to fail fast if they are unavailable
 	if len(cf.json) > 0 || len(cf.ndjson) > 0 || len(cf.csv) > 0 {
 		resolved := resolveModelPath(false)
-		netflowDetector, err = engine.NewDetector(resolved)
+		_, err := engine.NewDetector(resolved)
 		if err != nil {
 			return nil, 0, 0, fmt.Errorf("failed loading xgboost model for Netflow: %w", err)
-		}
-		if cfg != nil {
-			netflowDetector.Subnet = cfg.Subnet
 		}
 	}
 
 	if len(cf.pcap) > 0 {
 		resolved := resolveModelPath(true)
-		pcapDetector, err = engine.NewPcapDetector(resolved)
+		_, err := engine.NewPcapDetector(resolved)
 		if err != nil {
 			return nil, 0, 0, fmt.Errorf("failed loading xgboost model for PCAP: %w", err)
-		}
-		if cfg != nil {
-			pcapDetector.Subnet = cfg.Subnet
 		}
 	}
 
@@ -180,49 +173,103 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 	allFiles = append(allFiles, cf.pcap...)
 	allFiles = append(allFiles, cf.csv...)
 
-	var totalRecords int64
+	var totalRecords atomic.Int64
 	var allResults []models.MLResult
+	var resultsMutex sync.Mutex
 	seenIPs := engine.NewHyperLogLog(14)
+	var seenMutex sync.Mutex
 
-	for i, file := range allFiles {
-		if !Silence {
-			fmt.Printf("Processing file %d/%d: %s\n", i+1, totalFiles, filepath.Base(file))
-		}
-		ext := strings.ToLower(filepath.Ext(file))
-		var count int64
-		if ext == ".pcap" {
-			count, err = ProcessPcapFile(file, pcapDetector, scanner.StreamPCAP)
-		} else if ext == ".csv" {
-			count, err = ProcessFile(file, netflowDetector, scanner.StreamCSV)
-		} else if ext == ".json" {
-			count, err = ProcessFile(file, netflowDetector, scanner.StreamJSON)
-		} else if ext == ".ndjson" {
-			count, err = ProcessFile(file, netflowDetector, scanner.StreamNDJSON)
-		}
-
-		if err != nil {
-			if !Silence {
-				fmt.Printf("Error processing %s: %v\n", file, err)
-			}
-			continue
-		}
-		totalRecords += count
-
-		// FlushResults extracts results AND clears maxProbs/maxFeatures,
-		// preventing unbounded memory growth across files.
-		if ext == ".pcap" {
-			allResults = append(allResults, pcapDetector.FlushResults(seenIPs)...)
-		} else {
-			allResults = append(allResults, netflowDetector.FlushResults(seenIPs)...)
-		}
-		runtime.GC()
+	type fileJob struct {
+		Index int
+		Path  string
 	}
+	jobs := make(chan fileJob, totalFiles)
+	for i, file := range allFiles {
+		jobs <- fileJob{Index: i, Path: file}
+	}
+	close(jobs)
 
+	// A single file parse kicks off numCPU/2 internal workers.
+	// Cap file-level concurrency to avoid extreme thrashing or OOM.
+	numWorkers := runtime.NumCPU()
+
+	var wg sync.WaitGroup
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			var netflowDetector *engine.Detector
+			var pcapDetector *engine.PcapDetector
+
+			// Each worker holds its own Detector instance for strict 5-min window isolation safely
+			if len(cf.json) > 0 || len(cf.ndjson) > 0 || len(cf.csv) > 0 {
+				netflowDetector, _ = engine.NewDetector(resolveModelPath(false))
+				if netflowDetector != nil && cfg != nil {
+					netflowDetector.Subnet = cfg.Subnet
+				}
+			}
+			if len(cf.pcap) > 0 {
+				pcapDetector, _ = engine.NewPcapDetector(resolveModelPath(true))
+				if pcapDetector != nil && cfg != nil {
+					pcapDetector.Subnet = cfg.Subnet
+				}
+			}
+
+			localSeenIPs := engine.NewHyperLogLog(14)
+			var localResults []models.MLResult
+
+			for job := range jobs {
+				if !Silence {
+					fmt.Printf("Processing file %d/%d: %s\n", job.Index+1, totalFiles, filepath.Base(job.Path))
+				}
+				ext := strings.ToLower(filepath.Ext(job.Path))
+				var count int64
+				var err error
+
+				if ext == ".pcap" && pcapDetector != nil {
+					count, err = ProcessPcapFile(job.Path, pcapDetector, scanner.StreamPCAP)
+					if err == nil {
+						localResults = append(localResults, pcapDetector.FlushResults(localSeenIPs)...)
+					}
+				} else if netflowDetector != nil {
+					if ext == ".csv" {
+						count, err = ProcessFile(job.Path, netflowDetector, scanner.StreamCSV)
+					} else if ext == ".json" {
+						count, err = ProcessFile(job.Path, netflowDetector, scanner.StreamJSON)
+					} else if ext == ".ndjson" {
+						count, err = ProcessFile(job.Path, netflowDetector, scanner.StreamNDJSON)
+					}
+
+					if err == nil {
+						localResults = append(localResults, netflowDetector.FlushResults(localSeenIPs)...)
+					}
+				}
+
+				if err != nil {
+					if !Silence {
+						fmt.Printf("Error processing %s: %v\n", job.Path, err)
+					}
+				} else {
+					totalRecords.Add(count)
+				}
+			}
+
+			resultsMutex.Lock()
+			allResults = append(allResults, localResults...)
+			resultsMutex.Unlock()
+
+			seenMutex.Lock()
+			seenIPs.Merge(localSeenIPs)
+			seenMutex.Unlock()
+		}()
+	}
+	wg.Wait()
 
 	// Deduplicate: keep only the highest score per IP across all files
 	allResults = deduplicateMaxScore(allResults)
 
-	return allResults, seenIPs.Estimate(), totalRecords, nil
+	return allResults, seenIPs.Estimate(), totalRecords.Load(), nil
 }
 
 // deduplicateMaxScore keeps only the highest-scoring entry per IP.

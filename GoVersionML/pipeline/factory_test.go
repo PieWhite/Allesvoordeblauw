@@ -14,44 +14,44 @@ func TestRunPipelineForInput(t *testing.T) {
 	tempDir := t.TempDir()
 
 	tests := []struct {
-		name      string
-		filename  string
-		wantErr   string
+		name     string
+		filename string
+		wantErr  string
 	}{
 		{
-			name:      "Empty Extension",
-			filename:  "file_without_ext",
-			wantErr:   "unsupported file extension:",
+			name:     "Empty Extension",
+			filename: "file_without_ext",
+			wantErr:  "unsupported file extension:",
 		},
 		{
-			name:      "Unsupported Extension",
-			filename:  "file.txt",
-			wantErr:   "unsupported file extension: .txt",
+			name:     "Unsupported Extension",
+			filename: "file.txt",
+			wantErr:  "unsupported file extension: .txt",
 		},
 		{
-			name:      "PCAP Extension",
-			filename:  "capture.pcap",
-			wantErr:   "failed loading xgboost model",
+			name:     "PCAP Extension",
+			filename: "capture.pcap",
+			wantErr:  "failed loading xgboost model",
 		},
 		{
-			name:      "JSON Extension with missing model",
-			filename:  "data.json",
-			wantErr:   "failed loading xgboost model",
+			name:     "JSON Extension with missing model",
+			filename: "data.json",
+			wantErr:  "failed loading xgboost model",
 		},
 		{
-			name:      "NDJSON Extension with missing model",
-			filename:  "data.ndjson",
-			wantErr:   "failed loading xgboost model",
+			name:     "NDJSON Extension with missing model",
+			filename: "data.ndjson",
+			wantErr:  "failed loading xgboost model",
 		},
 		{
-			name:      "Uppercase PCAP Extension",
-			filename:  "CAPTURE.PCAP",
-			wantErr:   "failed loading xgboost model",
+			name:     "Uppercase PCAP Extension",
+			filename: "CAPTURE.PCAP",
+			wantErr:  "failed loading xgboost model",
 		},
 		{
-			name:      "Uppercase JSON Extension",
-			filename:  "DATA.JSON",
-			wantErr:   "failed loading xgboost model",
+			name:     "Uppercase JSON Extension",
+			filename: "DATA.JSON",
+			wantErr:  "failed loading xgboost model",
 		},
 	}
 

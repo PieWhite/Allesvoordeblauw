@@ -124,7 +124,7 @@ func TestModel_Update_Navigation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := NewModel()
 			m.cursor = tt.startPos
-			
+
 			var msg tea.Msg
 			if tt.key == "down" {
 				msg = tea.KeyMsg{Type: tea.KeyDown}
@@ -188,7 +188,7 @@ func TestModel_FileBrowser_EscReturns(t *testing.T) {
 func TestModel_FileBrowser_BackspaceGoesUp(t *testing.T) {
 	m := NewModel()
 	m.state = stateFileBrowser
-	
+
 	// Start in current directory
 	_ = m.loadDirectory(".")
 	startDir := m.currentDir
@@ -257,19 +257,19 @@ func TestModel_FileBrowser_PressX_OnNonJson(t *testing.T) {
 	m := NewModel()
 	m.state = stateFileBrowser
 	m.selectedOption = 0
-	
+
 	// Create a dummy file with non-json ext
 	m.entries = []FileEntry{
 		{Name: "data.txt", IsDir: false, Size: 100},
 	}
 	m.fileCursor = 0
-	
+
 	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	mResult, ok := updatedModel.(Model)
 	if !ok {
 		t.Fatalf("expected model to be of type Model")
 	}
-	
+
 	if mResult.state != stateFileBrowser {
 		t.Errorf("expected state to remain stateFileBrowser, got %v", mResult.state)
 	}
@@ -283,18 +283,18 @@ func TestModel_FileBrowser_PressX_OnJson(t *testing.T) {
 	m.state = stateFileBrowser
 	m.selectedOption = 0
 	m.currentDir = "/test/dir"
-	
+
 	m.entries = []FileEntry{
 		{Name: "data.json", IsDir: false, Size: 100},
 	}
 	m.fileCursor = 0
-	
+
 	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	mResult, ok := updatedModel.(Model)
 	if !ok {
 		t.Fatalf("expected model to be of type Model")
 	}
-	
+
 	if mResult.state != stateConfirmSelection {
 		t.Errorf("expected state to switch to stateConfirmSelection, got %v", mResult.state)
 	}
@@ -308,13 +308,13 @@ func TestModel_ConfirmSelection_Cancel(t *testing.T) {
 	m := NewModel()
 	m.state = stateConfirmSelection
 	m.scanPath = "/test/dir/data.json"
-	
+
 	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
 	mResult, ok := updatedModel.(Model)
 	if !ok {
 		t.Fatalf("expected model to be of type Model")
 	}
-	
+
 	if mResult.state != stateFileBrowser {
 		t.Errorf("expected state to return to stateFileBrowser, got %v", mResult.state)
 	}
@@ -327,13 +327,13 @@ func TestModel_ConfirmSelection_Confirm(t *testing.T) {
 	m := NewModel()
 	m.state = stateConfirmSelection
 	m.scanPath = "/test/dir/data.json"
-	
+
 	updatedModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
 	mResult, ok := updatedModel.(Model)
 	if !ok {
 		t.Fatalf("expected model to be of type Model")
 	}
-	
+
 	if !mResult.confirmedScan {
 		t.Error("expected confirmedScan to be true")
 	}
@@ -401,18 +401,18 @@ func TestModel_FileBrowser_PressX_OnDirInFolderMode(t *testing.T) {
 	m.state = stateFileBrowser
 	m.selectedOption = 1 // Folder detection
 	m.currentDir = "/test/dir"
-	
+
 	m.entries = []FileEntry{
 		{Name: "subfolder", IsDir: true},
 	}
 	m.fileCursor = 0
-	
+
 	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	mResult, ok := updatedModel.(Model)
 	if !ok {
 		t.Fatalf("expected model to be of type Model")
 	}
-	
+
 	if mResult.state != stateConfirmSelection {
 		t.Errorf("expected state to switch to stateConfirmSelection, got %v", mResult.state)
 	}
@@ -427,18 +427,18 @@ func TestModel_FileBrowser_PressX_OnParentDirIgnored(t *testing.T) {
 	m.state = stateFileBrowser
 	m.selectedOption = 1 // Folder detection
 	m.currentDir = "/test/dir"
-	
+
 	m.entries = []FileEntry{
 		{Name: "..", IsDir: true},
 	}
 	m.fileCursor = 0
-	
+
 	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	mResult, ok := updatedModel.(Model)
 	if !ok {
 		t.Fatalf("expected model to be of type Model")
 	}
-	
+
 	if mResult.state != stateFileBrowser {
 		t.Errorf("expected state to remain stateFileBrowser, got %v", mResult.state)
 	}
@@ -453,13 +453,13 @@ func TestModel_ResultsState_PressX_TransitionsToFullLog(t *testing.T) {
 	m.scanPath = "/test/dir/data.json"
 	m.confirmedScan = true
 	m.scanError = nil // Simulate successful scan
-	
+
 	updatedModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	mResult, ok := updatedModel.(Model)
 	if !ok {
 		t.Fatalf("expected model to be of type Model")
 	}
-	
+
 	if mResult.state != stateFullLog {
 		t.Errorf("expected state to switch to stateFullLog, got %v", mResult.state)
 	}
@@ -476,7 +476,7 @@ func TestModel_FullLog_Scrolling(t *testing.T) {
 	m.state = stateFullLog
 	m.fullLogText = "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22"
 	m.logScrollRow = 0
-	
+
 	// Scroll down
 	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	mResult, ok := updatedModel.(Model)
@@ -590,7 +590,7 @@ func TestModel_FileBrowser_Pagination(t *testing.T) {
 func TestModel_FileBrowser_PaginationKeys(t *testing.T) {
 	m := NewModel()
 	m.state = stateFileBrowser
-	
+
 	// Create 25 dummy entries
 	for i := 0; i < 25; i++ {
 		m.entries = append(m.entries, FileEntry{
@@ -647,18 +647,18 @@ func TestModel_FileBrowser_PressX_OnCSV(t *testing.T) {
 	m.state = stateFileBrowser
 	m.selectedOption = 0
 	m.currentDir = "/test/dir"
-	
+
 	m.entries = []FileEntry{
 		{Name: "data.csv", IsDir: false, Size: 100},
 	}
 	m.fileCursor = 0
-	
+
 	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	mResult, ok := updatedModel.(Model)
 	if !ok {
 		t.Fatalf("expected model to be of type Model")
 	}
-	
+
 	if mResult.state != stateConfirmSelection {
 		t.Errorf("expected state to switch to stateConfirmSelection, got %v", mResult.state)
 	}

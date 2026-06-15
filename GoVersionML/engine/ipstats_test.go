@@ -80,7 +80,7 @@ func TestToMLVector_EmptyFlow(t *testing.T) {
 
 func TestIPStats_HybridTransition(t *testing.T) {
 	s := NewIPStats()
-	
+
 	// Add 30 unique Dst IPs to trigger map transition
 	for i := 0; i < 30; i++ {
 		s.AddUniqueDstIP(uint32(i + 1))
@@ -132,7 +132,7 @@ func TestIPStats_HybridTransition(t *testing.T) {
 	if s.InboundDstPortsMap == nil {
 		t.Error("expected InboundDstPortsMap to be initialized")
 	}
-	
+
 	// Test port symmetry using hybrid map
 	sym := s.calculatePortSymmetry()
 	if sym != 30 {
@@ -158,4 +158,3 @@ func TestIPStats_HybridTransition(t *testing.T) {
 		t.Errorf("expected size to remain 29, got %d", len(s.TargetLastTimes))
 	}
 }
-

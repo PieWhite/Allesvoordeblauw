@@ -34,45 +34,45 @@ var FeatureNames = []string{
 
 // PcapFeatureNames maps index f0 through f38 back to their PCAP human-readable names.
 var PcapFeatureNames = []string{
-	"Header_Length",    // f0
-	"Time_To_Live",     // f1
-	"Rate",             // f2
-	"fin_flag_number",  // f3
-	"syn_flag_number",  // f4
-	"rst_flag_number",  // f5
-	"psh_flag_number",  // f6
-	"ack_flag_number",  // f7
-	"ece_flag_number",  // f8
-	"cwr_flag_number",  // f9
-	"syn_count",        // f10
-	"ack_count",        // f11
-	"fin_count",        // f12
-	"rst_count",        // f13
-	"IGMP",             // f14
-	"HTTPS",            // f15
-	"HTTP",             // f16
-	"Telnet",           // f17
-	"DNS",              // f18
-	"SMTP",             // f19
-	"SSH",              // f20
-	"IRC",              // f21
-	"TCP",              // f22
-	"UDP",              // f23
-	"DHCP",             // f24
-	"ARP",              // f25
-	"ICMP",             // f26
-	"IPv",              // f27
-	"LLC",              // f28
-	"Tot sum",          // f29
-	"Min",              // f30
-	"Max",              // f31
-	"AVG",              // f32
-	"Std",              // f33
-	"Tot size",         // f34
-	"IAT",              // f35
-	"Number",           // f36
-	"Variance",         // f37
-	"Protocol Type",    // f38
+	"Header_Length",   // f0
+	"Time_To_Live",    // f1
+	"Rate",            // f2
+	"fin_flag_number", // f3
+	"syn_flag_number", // f4
+	"rst_flag_number", // f5
+	"psh_flag_number", // f6
+	"ack_flag_number", // f7
+	"ece_flag_number", // f8
+	"cwr_flag_number", // f9
+	"syn_count",       // f10
+	"ack_count",       // f11
+	"fin_count",       // f12
+	"rst_count",       // f13
+	"IGMP",            // f14
+	"HTTPS",           // f15
+	"HTTP",            // f16
+	"Telnet",          // f17
+	"DNS",             // f18
+	"SMTP",            // f19
+	"SSH",             // f20
+	"IRC",             // f21
+	"TCP",             // f22
+	"UDP",             // f23
+	"DHCP",            // f24
+	"ARP",             // f25
+	"ICMP",            // f26
+	"IPv",             // f27
+	"LLC",             // f28
+	"Tot sum",         // f29
+	"Min",             // f30
+	"Max",             // f31
+	"AVG",             // f32
+	"Std",             // f33
+	"Tot size",        // f34
+	"IAT",             // f35
+	"Number",          // f36
+	"Variance",        // f37
+	"Protocol Type",   // f38
 }
 
 type ModelNode struct {

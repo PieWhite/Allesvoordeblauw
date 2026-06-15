@@ -224,44 +224,44 @@ func (s *PcapIPStats) ToPcapMLVector() []float64 {
 
 	// Build and return the vector — order matches CICIoT2023 extracted features
 	return []float64{
-		avgHeaderLen,                       // 1:  Header Length
-		avgTTL,                             // 2:  Time-To-Live
-		rate,                               // 3:  Rate
-		float64(s.FinCount) / fc,           // 4:  fin flag number
-		float64(s.SynCount) / fc,           // 5:  syn flag number
-		float64(s.RstCount) / fc,           // 6:  rst flag number
-		float64(s.PshCount) / fc,           // 7:  psh flag number
-		float64(s.AckCount) / fc,           // 8:  ack flag number
-		float64(s.EceCount) / fc,           // 9:  ece flag number
-		float64(s.CwrCount) / fc,           // 10: cwr flag number
-		float64(s.SynCount),                // 11: syn count
-		float64(s.AckCount),                // 12: ack count
-		float64(s.FinCount),                // 13: fin count
-		float64(s.RstCount),                // 14: rst count
-		float64(s.IGMPCount) / fc,          // 15: IGMP
-		float64(s.HTTPSCount) / fc,         // 16: HTTPS
-		float64(s.HTTPCount) / fc,          // 17: HTTP
-		float64(s.TelnetCount) / fc,        // 18: Telnet
-		float64(s.DNSCount) / fc,           // 19: DNS
-		float64(s.SMTPCount) / fc,          // 20: SMTP
-		float64(s.SSHCount) / fc,           // 21: SSH
-		float64(s.IRCCount) / fc,           // 22: IRC
-		float64(s.TCPCount) / fc,           // 23: TCP
-		float64(s.UDPCount) / fc,           // 24: UDP
-		float64(s.DHCPCount) / fc,          // 25: DHCP
-		float64(s.ARPCount) / fc,           // 26: ARP
-		float64(s.ICMPCount) / fc,          // 27: ICMP
-		float64(s.IPvCount) / fc,           // 28: IPv
-		float64(s.LLCCount) / fc,           // 29: LLC
-		s.TotalLength,                      // 30: Tot Sum
-		minL,                               // 31: Min
-		maxL,                               // 32: Max
-		avgLength,                          // 33: AVG
-		lengthStd,                          // 34: Std
-		avgLength,                          // 35: Tot Size (Average packet length)
-		iatMean,                            // 36: IAT
-		fc,                                 // 37: Number
-		lengthVar,                          // 38: Variance
-		modeProto,                          // 39: Protocol Type
+		avgHeaderLen,                // 1:  Header Length
+		avgTTL,                      // 2:  Time-To-Live
+		rate,                        // 3:  Rate
+		float64(s.FinCount) / fc,    // 4:  fin flag number
+		float64(s.SynCount) / fc,    // 5:  syn flag number
+		float64(s.RstCount) / fc,    // 6:  rst flag number
+		float64(s.PshCount) / fc,    // 7:  psh flag number
+		float64(s.AckCount) / fc,    // 8:  ack flag number
+		float64(s.EceCount) / fc,    // 9:  ece flag number
+		float64(s.CwrCount) / fc,    // 10: cwr flag number
+		float64(s.SynCount),         // 11: syn count
+		float64(s.AckCount),         // 12: ack count
+		float64(s.FinCount),         // 13: fin count
+		float64(s.RstCount),         // 14: rst count
+		float64(s.IGMPCount) / fc,   // 15: IGMP
+		float64(s.HTTPSCount) / fc,  // 16: HTTPS
+		float64(s.HTTPCount) / fc,   // 17: HTTP
+		float64(s.TelnetCount) / fc, // 18: Telnet
+		float64(s.DNSCount) / fc,    // 19: DNS
+		float64(s.SMTPCount) / fc,   // 20: SMTP
+		float64(s.SSHCount) / fc,    // 21: SSH
+		float64(s.IRCCount) / fc,    // 22: IRC
+		float64(s.TCPCount) / fc,    // 23: TCP
+		float64(s.UDPCount) / fc,    // 24: UDP
+		float64(s.DHCPCount) / fc,   // 25: DHCP
+		float64(s.ARPCount) / fc,    // 26: ARP
+		float64(s.ICMPCount) / fc,   // 27: ICMP
+		float64(s.IPvCount) / fc,    // 28: IPv
+		float64(s.LLCCount) / fc,    // 29: LLC
+		s.TotalLength,               // 30: Tot Sum
+		minL,                        // 31: Min
+		maxL,                        // 32: Max
+		avgLength,                   // 33: AVG
+		lengthStd,                   // 34: Std
+		avgLength,                   // 35: Tot Size (Average packet length)
+		iatMean,                     // 36: IAT
+		fc,                          // 37: Number
+		lengthVar,                   // 38: Variance
+		modeProto,                   // 39: Protocol Type
 	}
 }

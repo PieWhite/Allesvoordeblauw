@@ -328,9 +328,9 @@ func CSVProducer(scanner *bufio.Scanner, firstLine []byte, chunksChan chan<- *Ba
 		}
 
 		// Skip nfdump summary footer lines and short/invalid lines
-		if bytes.HasPrefix(raw, []byte("Summary")) || 
-			bytes.HasPrefix(raw, []byte("Time window")) || 
-			bytes.HasPrefix(raw, []byte("Total bytes")) || 
+		if bytes.HasPrefix(raw, []byte("Summary")) ||
+			bytes.HasPrefix(raw, []byte("Time window")) ||
+			bytes.HasPrefix(raw, []byte("Total bytes")) ||
 			bytes.HasPrefix(raw, []byte("flows,")) {
 			return
 		}

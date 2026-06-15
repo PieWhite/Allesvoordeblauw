@@ -17,29 +17,29 @@ type TargetLastTime struct {
 }
 
 type IPStats struct {
-	IP                 uint32
-	FlowCount          int
-	
+	IP        uint32
+	FlowCount int
+
 	// Inline first element to avoid slice backing array allocation on heap
-	HasFirstDstIP      bool
-	FirstDstIP         uint32
-	UniqueDstIPs       []uint32
-	UniqueDstIPsMap    map[uint32]struct{}
+	HasFirstDstIP   bool
+	FirstDstIP      uint32
+	UniqueDstIPs    []uint32
+	UniqueDstIPsMap map[uint32]struct{}
 
-	HasFirstDstPort    bool
-	FirstDstPort       int
-	UniqueDstPorts     []int
-	UniqueDstPortsMap  map[int]struct{}
+	HasFirstDstPort   bool
+	FirstDstPort      int
+	UniqueDstPorts    []int
+	UniqueDstPortsMap map[int]struct{}
 
-	HasFirstOutbound   bool
-	FirstOutboundPort  int
-	OutboundDstPorts   []int
+	HasFirstOutbound    bool
+	FirstOutboundPort   int
+	OutboundDstPorts    []int
 	OutboundDstPortsMap map[int]struct{}
 
 	HasFirstInbound    bool
 	FirstInboundPort   int
 	InboundDstPorts    []int
-	InboundDstPortsMap  map[int]struct{}
+	InboundDstPortsMap map[int]struct{}
 
 	TotalBytes         float64
 	TotalPackets       float64
@@ -51,9 +51,9 @@ type IPStats struct {
 	WellKnownPortCount float64
 	SumDurationSec     float64
 
-	IatCount           float64
-	IatMean            float64
-	IatM2              float64
+	IatCount float64
+	IatMean  float64
+	IatM2    float64
 
 	HasFirstTarget      bool
 	FirstTarget         TargetKey
@@ -80,7 +80,7 @@ func RecycleIPStats(s *IPStats) {
 func (s *IPStats) Reset() {
 	s.IP = 0
 	s.FlowCount = 0
-	
+
 	s.HasFirstDstIP = false
 	s.FirstDstIP = 0
 	if cap(s.UniqueDstIPs) > 1024 {
@@ -317,7 +317,7 @@ func (s *IPStats) AddTargetStartTime(tKey TargetKey, first time.Time) {
 			s.TargetLastTimes[idx].LastSeenTime = valTime
 			return
 		}
-		
+
 		idx := len(s.TargetLastTimes)
 		tlt := TargetLastTime{
 			Target:       tKey,

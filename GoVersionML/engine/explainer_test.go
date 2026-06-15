@@ -165,7 +165,7 @@ func TestExplainer_FormatExplanation_Types(t *testing.T) {
 	// Feature index 3: total_bytes
 	// Feature index 7: pct_tcp
 	// Feature index 12: avg_duration
-	
+
 	trees := []ModelNode{
 		{
 			NodeID:         0,
@@ -206,12 +206,12 @@ func TestExplainer_FormatExplanation_Types(t *testing.T) {
 	}
 
 	explainer := &Explainer{Trees: trees}
-	
+
 	features := make([]float64, 21)
-	features[0] = 120.0             // flow_count (should format as "120")
-	features[3] = 1536.0            // total_bytes (should format as "1.5KB")
-	features[7] = 85.5              // pct_tcp (should format as "85.5%")
-	features[12] = 0.0456           // avg_duration (should format as "0.046s")
+	features[0] = 120.0   // flow_count (should format as "120")
+	features[3] = 1536.0  // total_bytes (should format as "1.5KB")
+	features[7] = 85.5    // pct_tcp (should format as "85.5%")
+	features[12] = 0.0456 // avg_duration (should format as "0.046s")
 
 	explanation := explainer.FormatExplanation(features)
 
@@ -220,7 +220,7 @@ func TestExplainer_FormatExplanation_Types(t *testing.T) {
 	// f3 (total_bytes) has contribution 5.0
 	// f12 (avg_duration) has contribution 2.0
 	// f0 (flow_count) has contribution 1.0
-	
+
 	if !strings.Contains(explanation, "pct_tcp (85.5%)") {
 		t.Errorf("expected pct_tcp percentage formatting, got: %s", explanation)
 	}
@@ -247,9 +247,9 @@ func TestExplainer_FormatExplanation_Types(t *testing.T) {
 				},
 			},
 		}
-		
+
 		expMB := &Explainer{Trees: bytesMBTree}
-		
+
 		// 2.5 MB
 		featsMB := make([]float64, 21)
 		featsMB[3] = 2.5 * 1024 * 1024
@@ -273,7 +273,7 @@ func TestExplainer_FormatExplanation_EmptyContributions(t *testing.T) {
 	explainer := &Explainer{
 		Trees: []ModelNode{},
 	}
-	
+
 	features := []float64{1.0, 2.0}
 	explanation := explainer.FormatExplanation(features)
 	if explanation != "unknown reasons" {
@@ -313,7 +313,7 @@ func TestExplainer_WeightedAverage(t *testing.T) {
 	if len(contributions) != 2 {
 		t.Fatalf("expected 2 contributions, got %d", len(contributions))
 	}
-	
+
 	for _, c := range contributions {
 		if c.Contribution != 3.0 {
 			t.Errorf("expected contribution of 3.0 for feature %s, got %f", c.Name, c.Contribution)
@@ -402,13 +402,13 @@ func TestExplainer_PCAPFormatting(t *testing.T) {
 	}
 
 	features := make([]float64, 39)
-	features[0] = 54.2              // Header_Length -> should show "54.2B"
-	features[2] = 2304.5            // Rate -> should show "2304.5 pps"
-	features[3] = 0.4578            // fin_flag_number -> ratio between 0 and 1, should show "45.8%"
-	features[10] = 120.0            // syn_count -> should show "120"
+	features[0] = 54.2                // Header_Length -> should show "54.2B"
+	features[2] = 2304.5              // Rate -> should show "2304.5 pps"
+	features[3] = 0.4578              // fin_flag_number -> ratio between 0 and 1, should show "45.8%"
+	features[10] = 120.0              // syn_count -> should show "120"
 	features[29] = 10.5 * 1024 * 1024 // Tot sum -> should show "10.5MB"
-	features[35] = 0.00456          // IAT -> should show "0.005s"
-	features[38] = 6.0              // Protocol Type -> should translate to "TCP"
+	features[35] = 0.00456            // IAT -> should show "0.005s"
+	features[38] = 6.0                // Protocol Type -> should translate to "TCP"
 
 	explanation := explainer.FormatExplanation(features)
 

@@ -18,7 +18,6 @@ type RecordProcessor interface {
 
 type StreamFn func(r io.Reader, fn func([]models.NetflowRecord)) error
 
-
 func AnalyzeFile(cfg *config.AppConfig, modelPath string, stream StreamFn) ([]models.MLResult, int, int64, error) {
 	detector, err := engine.NewDetector(modelPath)
 	if err != nil {

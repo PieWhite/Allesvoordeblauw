@@ -78,7 +78,7 @@ func TestStreamNetflow_EmptyStream(t *testing.T) {
 }
 
 func TestStreamNetflow_InvalidData(t *testing.T) {
-	// Mixed valid and invalid data. 
+	// Mixed valid and invalid data.
 	// The invalid json must be enclosed in {} for the splitJSONObjects tokenizer to capture it.
 	jsonData := `[
 {"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"},
@@ -296,7 +296,7 @@ func TestStreamNetflow_WorkerErrorHaltsProducer(t *testing.T) {
 	var builder strings.Builder
 	builder.WriteString("[\n")
 	validJSON := `{"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}`
-	
+
 	// First batch (1000 items) is completely valid
 	for i := 0; i < 1000; i++ {
 		builder.WriteString(validJSON)
@@ -414,7 +414,7 @@ func TestStreamNetflow_MissingSequenceNoise(t *testing.T) {
 	var builder strings.Builder
 
 	validRecord := `{"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}`
-	
+
 	// Batch 0
 	for i := 0; i < batchSize; i++ {
 		builder.WriteString(validRecord)
@@ -446,4 +446,3 @@ func TestStreamNetflow_MissingSequenceNoise(t *testing.T) {
 		t.Fatalf("Expected %d records processed, but got %d (data was dropped!)", 2*batchSize, totalProcessed)
 	}
 }
-

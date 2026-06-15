@@ -38,14 +38,30 @@ var flagsCache [256]string
 func init() {
 	for i := 0; i < 256; i++ {
 		var f []byte
-		if i&0x01 != 0 { f = append(f, 'F') } // FIN
-		if i&0x02 != 0 { f = append(f, 'S') } // SYN
-		if i&0x04 != 0 { f = append(f, 'R') } // RST
-		if i&0x08 != 0 { f = append(f, 'P') } // PSH
-		if i&0x10 != 0 { f = append(f, 'A') } // ACK
-		if i&0x20 != 0 { f = append(f, 'U') } // URG
-		if i&0x40 != 0 { f = append(f, 'E') } // ECE
-		if i&0x80 != 0 { f = append(f, 'C') } // CWR
+		if i&0x01 != 0 {
+			f = append(f, 'F')
+		} // FIN
+		if i&0x02 != 0 {
+			f = append(f, 'S')
+		} // SYN
+		if i&0x04 != 0 {
+			f = append(f, 'R')
+		} // RST
+		if i&0x08 != 0 {
+			f = append(f, 'P')
+		} // PSH
+		if i&0x10 != 0 {
+			f = append(f, 'A')
+		} // ACK
+		if i&0x20 != 0 {
+			f = append(f, 'U')
+		} // URG
+		if i&0x40 != 0 {
+			f = append(f, 'E')
+		} // ECE
+		if i&0x80 != 0 {
+			f = append(f, 'C')
+		} // CWR
 		flagsCache[i] = string(f)
 	}
 }
@@ -82,8 +98,8 @@ func formatIPv4(buf []byte, ip []byte) int {
 	return n
 }
 
-// StreamPCAP parses a raw PCAP byte stream sequentially at max I/O speed, 
-// using pooled 1MB readers, static TCP flags cache, and a thread-local IP string cache 
+// StreamPCAP parses a raw PCAP byte stream sequentially at max I/O speed,
+// using pooled 1MB readers, static TCP flags cache, and a thread-local IP string cache
 // to guarantee exactly zero heap allocations for already-seen IPs and eliminate memory corruption.
 func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 	br := readerPool.Get().(*bufio.Reader)
