@@ -13,17 +13,17 @@ import (
 // PcapRecordProcessor abstracts the engine detector specifically for PCAP records
 type PcapRecordProcessor interface {
 	ProcessPcapRecords([]models.PcapRecord)
-	CalculateResults() []models.MLResult
+	CalculateResults() ([]models.MLResult, int)
 	TotalCount() int64
 }
 
 type PcapStreamFn func(r io.Reader, fn func([]models.PcapRecord)) error
 
 // AnalyzePcapFile is the entry point for PCAP file stream parsing and botnet detection
-func AnalyzePcapFile(cfg *config.AppConfig, modelPath string, stream PcapStreamFn) ([]models.MLResult, int64, error) {
+func AnalyzePcapFile(cfg *config.AppConfig, modelPath string, stream PcapStreamFn) ([]models.MLResult, int, int64, error) {
 	detector, err := engine.NewPcapDetector(modelPath)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed loading xgboost model: %w", err)
+		return nil, 0, 0, fmt.Errorf("failed loading xgboost model: %w", err)
 	}
 	if cfg != nil {
 		detector.Subnet = cfg.Subnet
@@ -36,11 +36,11 @@ func AnalyzePcapFile(cfg *config.AppConfig, modelPath string, stream PcapStreamF
 
 	_, err = ProcessPcapFile(inputPath, detector, stream)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
-	results := detector.CalculateResults()
-	return results, detector.TotalCount(), nil
+	results, uniqueIPs := detector.CalculateResults()
+	return results, uniqueIPs, detector.TotalCount(), nil
 }
 
 // ProcessPcapFile opens the raw PCAP file and streams it using the shared ProgressReader

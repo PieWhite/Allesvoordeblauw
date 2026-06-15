@@ -27,7 +27,7 @@ func TestPrintSummary(t *testing.T) {
 	totalRecords := int64(1000)
 	duration := 2 * time.Second
 
-	PrintSummary(&buf, results, totalRecords, duration)
+	PrintSummary(&buf, results, len(results), totalRecords, duration)
 	output := buf.String()
 
 	// 3. Assertions

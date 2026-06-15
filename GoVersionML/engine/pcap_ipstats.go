@@ -2,7 +2,6 @@ package engine
 
 import (
 	"math"
-	"sort"
 	"strings"
 
 	"goversion/models"
@@ -10,14 +9,16 @@ import (
 
 // PcapIPStats accumulates packet-level characteristics for a specific IP and window
 type PcapIPStats struct {
-	IP          string
-	Window      int64
-	PacketCount int
-	TotalLength float64
-	MinLength   float64
-	MaxLength   float64
-	Lengths     []float64
-	Timestamps  []float64
+	IP           uint32
+	Window       int64
+	PacketCount  int
+	TotalLength  float64
+	MinLength    float64
+	MaxLength    float64
+	LengthMean   float64
+	LengthM2     float64
+	MinTimestamp float64
+	MaxTimestamp float64
 
 	// TCP Flag Counts
 	FinCount int
@@ -47,14 +48,14 @@ type PcapIPStats struct {
 	LLCCount    int
 }
 
-func NewPcapIPStats(ip string, window int64) *PcapIPStats {
+func NewPcapIPStats(ip uint32, window int64) *PcapIPStats {
 	return &PcapIPStats{
-		IP:          ip,
-		Window:      window,
-		MinLength:   math.MaxFloat64,
-		MaxLength:   -math.MaxFloat64,
-		Lengths:     make([]float64, 0, 100),
-		Timestamps:  make([]float64, 0, 100),
+		IP:           ip,
+		Window:       window,
+		MinLength:    math.MaxFloat64,
+		MaxLength:    -math.MaxFloat64,
+		MinTimestamp: math.MaxFloat64,
+		MaxTimestamp: -math.MaxFloat64,
 	}
 }
 
@@ -63,14 +64,26 @@ func (s *PcapIPStats) Update(record models.PcapRecord, isOutbound bool) {
 	s.PacketCount++
 	length := float64(record.Length)
 	s.TotalLength += length
-	s.Lengths = append(s.Lengths, length)
-	s.Timestamps = append(s.Timestamps, record.Timestamp)
 
 	if length < s.MinLength {
 		s.MinLength = length
 	}
 	if length > s.MaxLength {
 		s.MaxLength = length
+	}
+
+	// Welford's algorithm for online variance
+	count := float64(s.PacketCount)
+	delta := length - s.LengthMean
+	s.LengthMean += delta / count
+	delta2 := length - s.LengthMean
+	s.LengthM2 += delta * delta2
+
+	if record.Timestamp < s.MinTimestamp {
+		s.MinTimestamp = record.Timestamp
+	}
+	if record.Timestamp > s.MaxTimestamp {
+		s.MaxTimestamp = record.Timestamp
 	}
 
 	// 1. TCP Flags
@@ -161,43 +174,27 @@ func (s *PcapIPStats) ToPcapMLVector() []float64 {
 	// B. Transmission Rate
 	var rate float64
 	var iatMean float64
-	var iat []float64
 
-	if len(s.Timestamps) > 1 {
-		sort.Float64s(s.Timestamps)
-		duration := s.Timestamps[len(s.Timestamps)-1] - s.Timestamps[0]
+	if s.PacketCount > 1 {
+		duration := s.MaxTimestamp - s.MinTimestamp
 		if duration > 0 {
 			rate = fc / duration
 		}
 
-		iat = make([]float64, len(s.Timestamps)-1)
-		var iatSum float64
-		for i := 1; i < len(s.Timestamps); i++ {
-			diff := s.Timestamps[i] - s.Timestamps[i-1]
-			if diff < 0 {
-				diff = 0
-			}
-			iat[i-1] = diff
-			iatSum += diff
+		iatSum := s.MaxTimestamp - s.MinTimestamp
+		if iatSum < 0 {
+			iatSum = 0
 		}
-		iatMean = iatSum / float64(len(iat))
+		iatMean = iatSum / float64(s.PacketCount-1)
 	}
 
 	// C. Packet Length Statistics
-	var lengthSum float64
-	for _, l := range s.Lengths {
-		lengthSum += l
-	}
-	avgLength := lengthSum / fc
+	avgLength := s.TotalLength / fc
 
 	var lengthVar float64
 	var lengthStd float64
-	if len(s.Lengths) > 1 {
-		var sumSq float64
-		for _, l := range s.Lengths {
-			sumSq += (l - avgLength) * (l - avgLength)
-		}
-		lengthVar = sumSq / float64(len(s.Lengths)-1) // ddof=1 sample variance
+	if s.PacketCount > 1 {
+		lengthVar = s.LengthM2 / float64(s.PacketCount-1)
 		lengthStd = math.Sqrt(lengthVar)
 	}
 

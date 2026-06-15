@@ -12,17 +12,17 @@ import (
 
 type RecordProcessor interface {
 	ProcessRecords([]models.NetflowRecord)
-	CalculateResults() []models.MLResult
+	CalculateResults() ([]models.MLResult, int)
 	TotalCount() int64
 }
 
 type StreamFn func(r io.Reader, fn func([]models.NetflowRecord)) error
 
 
-func AnalyzeFile(cfg *config.AppConfig, modelPath string, stream StreamFn) ([]models.MLResult, int64, error) {
+func AnalyzeFile(cfg *config.AppConfig, modelPath string, stream StreamFn) ([]models.MLResult, int, int64, error) {
 	detector, err := engine.NewDetector(modelPath)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed loading xgboost model: %w", err)
+		return nil, 0, 0, fmt.Errorf("failed loading xgboost model: %w", err)
 	}
 	if cfg != nil {
 		detector.Subnet = cfg.Subnet
@@ -35,11 +35,11 @@ func AnalyzeFile(cfg *config.AppConfig, modelPath string, stream StreamFn) ([]mo
 
 	_, err = ProcessFile(inputPath, detector, stream)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
-	results := detector.CalculateResults()
-	return results, detector.TotalCount(), nil
+	results, uniqueIPs := detector.CalculateResults()
+	return results, uniqueIPs, detector.TotalCount(), nil
 }
 
 func ProcessFile(inputPath string, processor RecordProcessor, stream StreamFn) (int64, error) {
@@ -69,14 +69,14 @@ func ProcessFile(inputPath string, processor RecordProcessor, stream StreamFn) (
 	return processor.TotalCount(), nil
 }
 
-func execute(r io.Reader, processor RecordProcessor, stream StreamFn) ([]models.MLResult, int64, error) {
+func execute(r io.Reader, processor RecordProcessor, stream StreamFn) ([]models.MLResult, int, int64, error) {
 	if stream == nil {
-		return nil, 0, fmt.Errorf("stream function cannot be nil")
+		return nil, 0, 0, fmt.Errorf("stream function cannot be nil")
 	}
 	if err := stream(r, processor.ProcessRecords); err != nil {
-		return nil, 0, fmt.Errorf("failed to stream netflow data: %w", err)
+		return nil, 0, 0, fmt.Errorf("failed to stream netflow data: %w", err)
 	}
 
-	results := processor.CalculateResults()
-	return results, processor.TotalCount(), nil
+	results, uniqueIPs := processor.CalculateResults()
+	return results, uniqueIPs, processor.TotalCount(), nil
 }

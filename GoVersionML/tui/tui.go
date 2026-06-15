@@ -427,12 +427,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						InputPath:   scanPath,
 						SkipConfirm: true,
 					}
-					results, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
+					results, totalUnique, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
 					duration := time.Since(start)
 
 					finishedChan <- scanFinishedMsg{
 						results:               results,
-						totalCommunicatingIPs: len(results),
+						totalCommunicatingIPs: totalUnique,
 						totalRecords:          totalRecords,
 						duration:              duration,
 						err:                   err,
@@ -458,7 +458,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.scanError == nil {
 					// Format scan report using reporter logic to string builder
 					var logBuilder strings.Builder
-					reporter.PrintSummary(&logBuilder, m.scanResults, m.totalRecords, m.scanDuration)
+					reporter.PrintSummary(&logBuilder, m.scanResults, m.totalCommunicatingIPs, m.totalRecords, m.scanDuration)
 					m.fullLogText = logBuilder.String()
 					m.logScrollRow = 0
 					m.state = stateFullLog

@@ -77,7 +77,7 @@ func TestRunPipelineForInput(t *testing.T) {
 				InputPath: path,
 			}
 
-			_, _, err = RunPipelineForInput(cfg)
+			_, _, _, err = RunPipelineForInput(cfg)
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
 			}
@@ -184,7 +184,7 @@ func TestProcessBatchErrorHandling(t *testing.T) {
 		NetflowModelPath = originalNetflow
 	})
 
-	_, _, err := processBatch(&config.AppConfig{}, cf, 1)
+	_, _, _, err := processBatch(&config.AppConfig{}, cf, 1)
 	if err == nil {
 		t.Fatal("expected model loading error, got nil")
 	}
@@ -204,7 +204,7 @@ func TestProcessBatchCSVErrorHandling(t *testing.T) {
 		NetflowModelPath = originalNetflow
 	})
 
-	_, _, err := processBatch(&config.AppConfig{}, cf, 1)
+	_, _, _, err := processBatch(&config.AppConfig{}, cf, 1)
 	if err == nil {
 		t.Fatal("expected model loading error, got nil")
 	}

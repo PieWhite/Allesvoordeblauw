@@ -28,8 +28,8 @@ func (m *mockProcessor) ProcessRecords(records []models.NetflowRecord) {
 	m.total += int64(len(records))
 }
 
-func (m *mockProcessor) CalculateResults() []models.MLResult {
-	return m.results
+func (m *mockProcessor) CalculateResults() ([]models.MLResult, int) {
+	return m.results, len(m.results)
 }
 
 func (m *mockProcessor) TotalCount() int64 {
@@ -47,7 +47,7 @@ func TestExecute(t *testing.T) {
 			return nil
 		}
 
-		results, count, err := execute(nil, processor, streamFn)
+		results, _, count, err := execute(nil, processor, streamFn)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -73,7 +73,7 @@ func TestExecute(t *testing.T) {
 			return expectedErr
 		}
 
-		results, count, err := execute(nil, processor, streamFn)
+		results, _, count, err := execute(nil, processor, streamFn)
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -93,7 +93,7 @@ func TestExecute(t *testing.T) {
 
 	t.Run("NilStream", func(t *testing.T) {
 		processor := &mockProcessor{}
-		_, _, err := execute(nil, processor, nil)
+		_, _, _, err := execute(nil, processor, nil)
 		if err == nil {
 			t.Fatalf("expected error for nil stream, got nil")
 		}
@@ -201,7 +201,7 @@ func TestAnalyzeFile(t *testing.T) {
 	}
 
 	t.Run("InvalidModelPath", func(t *testing.T) {
-		_, _, err := AnalyzeFile(&config.AppConfig{InputPath: "dummy.json"}, "invalid/path/to/model.json", mockScanner)
+		_, _, _, err := AnalyzeFile(&config.AppConfig{InputPath: "dummy.json"}, "invalid/path/to/model.json", mockScanner)
 		if err == nil {
 			t.Fatalf("expected error for invalid model path, got nil")
 		}
@@ -209,7 +209,7 @@ func TestAnalyzeFile(t *testing.T) {
 
 	t.Run("InvalidInputPath", func(t *testing.T) {
 		// Valid model, but invalid input file
-		_, _, err := AnalyzeFile(&config.AppConfig{InputPath: "nonexistent_input.json"}, validModel, mockScanner)
+		_, _, _, err := AnalyzeFile(&config.AppConfig{InputPath: "nonexistent_input.json"}, validModel, mockScanner)
 		if err == nil {
 			t.Fatalf("expected error for missing input file, got nil")
 		}
@@ -235,7 +235,7 @@ func TestAnalyzeFile(t *testing.T) {
 
 		// Test success execution
 		// Note: since this does actual ML inference setup, it may return some empty result or an error based on the ML engine if it expects specific format
-		_, _, err = AnalyzeFile(&config.AppConfig{InputPath: tempFile.Name()}, validModel, mockScanner)
+		_, _, _, err = AnalyzeFile(&config.AppConfig{InputPath: tempFile.Name()}, validModel, mockScanner)
 
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
@@ -243,7 +243,7 @@ func TestAnalyzeFile(t *testing.T) {
 	})
 
 	t.Run("NilStream", func(t *testing.T) {
-		_, _, err := AnalyzeFile(&config.AppConfig{InputPath: "dummy.json"}, validModel, nil)
+		_, _, _, err := AnalyzeFile(&config.AppConfig{InputPath: "dummy.json"}, validModel, nil)
 		if err == nil {
 			t.Fatalf("expected error for nil stream, got nil")
 		}

@@ -29,7 +29,7 @@ func TestDetector_CalculateResults_Empty(t *testing.T) {
 		model:      &MockModel{},
 	}
 
-	results := d.CalculateResults()
+	results, _ := d.CalculateResults()
 
 	if results == nil {
 		t.Fatal("Expected an empty slice, got nil")
@@ -57,11 +57,11 @@ func TestNewDetector_MockInitialization(t *testing.T) {
 // Verifies sparse matrix construction and handles float precision.
 func TestEvaluateBatch_SparseVectorOptimization(t *testing.T) {
 	mock := &MockModel{}
-	d := &Detector{model: mock, maxProbs: make(map[string]float64)}
+	d := &Detector{model: mock, maxProbs: make(map[uint32]float64)}
 
 	// Case: All features are 0.0 to test sparsity logic
 	stats := NewIPStats()
-	stats.IP = "1.2.3.4"
+	stats.IP, _ = ParseIPv4("1.2.3.4")
 	// ToMLVector naturally returns zeroes
 
 	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
@@ -79,7 +79,8 @@ func TestEvaluateBatch_SparseVectorOptimization(t *testing.T) {
 	// FIXED: Use epsilon comparison to handle float32 -> float64 conversion drift
 	const expected = 0.1
 	const epsilon = 1e-7
-	prob := d.maxProbs["1.2.3.4"]
+	ipVal, _ := ParseIPv4("1.2.3.4")
+	prob := d.maxProbs[ipVal]
 	if math.Abs(prob-expected) > epsilon {
 		t.Errorf("Expected prob ~%v, got %v", expected, prob)
 	}
@@ -92,19 +93,19 @@ func TestCalculateResults_LoggingAndContinue(t *testing.T) {
 	d := &Detector{
 		aggregator: NewAggregator(),
 		model:      mock,
-		maxProbs:   make(map[string]float64),
+		maxProbs:   make(map[uint32]float64),
 	}
 
-	// Setup two unique IPs in the aggregator via Update
+	// Setup two unique IPs in the aggregator via Update (hashing to the same partition)
 	d.aggregator.Update(models.NetflowRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"})
-	d.aggregator.Update(models.NetflowRecord{Src4Addr: "2.2.2.2", First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"})
+	d.aggregator.Update(models.NetflowRecord{Src4Addr: "1.1.1.65", First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"})
 
 	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
 		// Return 2 vectors, simulate failure for the first by returning nil
 		return mat.Matrix{Vectors: []*mat.Vector{nil, {0.9}}}, nil
 	}
 
-	results := d.CalculateResults()
+	results, _ := d.CalculateResults()
 
 	// Verify we still got 1 result despite the nil logic skipping one
 	if len(results) != 1 {
@@ -127,17 +128,19 @@ func TestDetector_ProcessRecord(t *testing.T) {
 
 func TestDetector_FormatResults_Threshold(t *testing.T) {
 	d := &Detector{}
-	probs := map[string]float64{
-		"bot":    0.81,
-		"benign": 0.49,
+	ipBot, _ := ParseIPv4("1.1.1.1")
+	ipBenign, _ := ParseIPv4("2.2.2.2")
+	probs := map[uint32]float64{
+		ipBot:    0.81,
+		ipBenign: 0.49,
 	}
 
 	results := d.formatResults(probs)
 	for _, res := range results {
-		if res.IP == "bot" && !res.IsBotnet {
+		if res.IP == "1.1.1.1" && !res.IsBotnet {
 			t.Error("0.81 should be marked as botnet")
 		}
-		if res.IP == "benign" && res.IsBotnet {
+		if res.IP == "2.2.2.2" && res.IsBotnet {
 			t.Error("0.49 should not be marked as botnet")
 		}
 	}
@@ -172,7 +175,7 @@ func TestDetector_updateMaxWindowAndFlush(t *testing.T) {
 	d := &Detector{
 		aggregator: NewAggregator(),
 		model:      mock,
-		maxProbs:   make(map[string]float64),
+		maxProbs:   make(map[uint32]float64),
 	}
 
 	// Insert data into aggregator with a window.
@@ -209,11 +212,11 @@ func TestEvaluateBatch_ErrorHandling(t *testing.T) {
 	d := &Detector{
 		aggregator: NewAggregator(),
 		model:      mock,
-		maxProbs:   make(map[string]float64),
+		maxProbs:   make(map[uint32]float64),
 	}
 
 	stats := NewIPStats()
-	stats.IP = "1.2.3.4"
+	stats.IP, _ = ParseIPv4("1.2.3.4")
 
 	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
 		return mat.Matrix{}, dummyError{}
@@ -232,19 +235,21 @@ func TestEvaluateBatch_MaxProbUpdate(t *testing.T) {
 	d := &Detector{
 		aggregator: NewAggregator(),
 		model:      mock,
-		maxProbs:   make(map[string]float64),
+		maxProbs:   make(map[uint32]float64),
 	}
+
+	ipVal, _ := ParseIPv4("10.0.0.1")
 
 	// First update with 0.5
 	mock.PredictFunc = func(input mat.SparseMatrix) (mat.Matrix, error) {
 		return mat.Matrix{Vectors: []*mat.Vector{{0.5}}}, nil
 	}
 	stats1 := NewIPStats()
-	stats1.IP = "10.0.0.1"
+	stats1.IP = ipVal
 	d.evaluateBatch([]*IPStats{stats1})
 
-	if d.maxProbs["10.0.0.1"] != 0.5 {
-		t.Errorf("Expected 0.5, got %v", d.maxProbs["10.0.0.1"])
+	if d.maxProbs[ipVal] != 0.5 {
+		t.Errorf("Expected 0.5, got %v", d.maxProbs[ipVal])
 	}
 
 	// Second update with 0.8 (should update)
@@ -252,11 +257,11 @@ func TestEvaluateBatch_MaxProbUpdate(t *testing.T) {
 		return mat.Matrix{Vectors: []*mat.Vector{{0.8}}}, nil
 	}
 	stats2 := NewIPStats()
-	stats2.IP = "10.0.0.1"
+	stats2.IP = ipVal
 	d.evaluateBatch([]*IPStats{stats2})
 
-	if math.Abs(d.maxProbs["10.0.0.1"]-float64(float32(0.8))) > 1e-6 {
-		t.Errorf("Expected ~0.8, got %v", d.maxProbs["10.0.0.1"])
+	if math.Abs(d.maxProbs[ipVal]-float64(float32(0.8))) > 1e-6 {
+		t.Errorf("Expected ~0.8, got %v", d.maxProbs[ipVal])
 	}
 
 	// Third update with 0.3 (should NOT update)
@@ -264,10 +269,10 @@ func TestEvaluateBatch_MaxProbUpdate(t *testing.T) {
 		return mat.Matrix{Vectors: []*mat.Vector{{0.3}}}, nil
 	}
 	stats3 := NewIPStats()
-	stats3.IP = "10.0.0.1"
+	stats3.IP = ipVal
 	d.evaluateBatch([]*IPStats{stats3})
 
-	if math.Abs(d.maxProbs["10.0.0.1"]-float64(float32(0.8))) > 1e-6 {
-		t.Errorf("Expected ~0.8 after lower prob, got %v", d.maxProbs["10.0.0.1"])
+	if math.Abs(d.maxProbs[ipVal]-float64(float32(0.8))) > 1e-6 {
+		t.Errorf("Expected ~0.8 after lower prob, got %v", d.maxProbs[ipVal])
 	}
 }

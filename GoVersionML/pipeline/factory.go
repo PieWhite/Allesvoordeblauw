@@ -25,10 +25,10 @@ type classifiedFiles struct {
 
 // RunPipelineForInput is the main entry point. It delegates to single-file
 // or directory processing based on the input path.
-func RunPipelineForInput(cfg *config.AppConfig) ([]models.MLResult, int64, error) {
+func RunPipelineForInput(cfg *config.AppConfig) ([]models.MLResult, int, int64, error) {
 	info, err := os.Stat(cfg.InputPath)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to stat input path: %w", err)
+		return nil, 0, 0, fmt.Errorf("failed to stat input path: %w", err)
 	}
 
 	if !info.IsDir() {
@@ -39,7 +39,7 @@ func RunPipelineForInput(cfg *config.AppConfig) ([]models.MLResult, int64, error
 }
 
 // routeSingleFile dispatches a single file to the correct scanner based on extension.
-func routeSingleFile(cfg *config.AppConfig) ([]models.MLResult, int64, error) {
+func routeSingleFile(cfg *config.AppConfig) ([]models.MLResult, int, int64, error) {
 	ext := strings.ToLower(filepath.Ext(cfg.InputPath))
 
 	switch ext {
@@ -56,19 +56,19 @@ func routeSingleFile(cfg *config.AppConfig) ([]models.MLResult, int64, error) {
 		resolved := resolveModelPath(false)
 		return AnalyzeFile(cfg, resolved, scanner.StreamCSV)
 	default:
-		return nil, 0, fmt.Errorf("unsupported file extension: %s", ext)
+		return nil, 0, 0, fmt.Errorf("unsupported file extension: %s", ext)
 	}
 }
 
-func runDirectoryPipeline(cfg *config.AppConfig) ([]models.MLResult, int64, error) {
+func runDirectoryPipeline(cfg *config.AppConfig) ([]models.MLResult, int, int64, error) {
 	classified, err := classifyDirectory(cfg.InputPath)
 	if err != nil {
-		return nil, 0, fmt.Errorf("error walking directory: %w", err)
+		return nil, 0, 0, fmt.Errorf("error walking directory: %w", err)
 	}
 
 	totalFiles := len(classified.json) + len(classified.ndjson) + len(classified.pcap) + len(classified.csv)
 	if totalFiles == 0 {
-		return nil, 0, fmt.Errorf("no .json, .ndjson, .csv or .pcap files found in directory")
+		return nil, 0, 0, fmt.Errorf("no .json, .ndjson, .csv or .pcap files found in directory")
 	}
 
 	if len(classified.unsupported) > 0 && !Silence {
@@ -77,7 +77,7 @@ func runDirectoryPipeline(cfg *config.AppConfig) ([]models.MLResult, int64, erro
 
 	if !cfg.SkipConfirm {
 		if err := confirmDirectoryParse(classified); err != nil {
-			return nil, 0, err
+			return nil, 0, 0, err
 		}
 	}
 
@@ -147,7 +147,7 @@ func confirmDirectoryParse(cf classifiedFiles) error {
 	return nil
 }
 
-func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]models.MLResult, int64, error) {
+func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]models.MLResult, int, int64, error) {
 	var netflowDetector *engine.Detector
 	var pcapDetector *engine.PcapDetector
 	var err error
@@ -156,7 +156,7 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 		resolved := resolveModelPath(false)
 		netflowDetector, err = engine.NewDetector(resolved)
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed loading xgboost model for Netflow: %w", err)
+			return nil, 0, 0, fmt.Errorf("failed loading xgboost model for Netflow: %w", err)
 		}
 		if cfg != nil {
 			netflowDetector.Subnet = cfg.Subnet
@@ -167,7 +167,7 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 		resolved := resolveModelPath(true)
 		pcapDetector, err = engine.NewPcapDetector(resolved)
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed loading xgboost model for PCAP: %w", err)
+			return nil, 0, 0, fmt.Errorf("failed loading xgboost model for PCAP: %w", err)
 		}
 		if cfg != nil {
 			pcapDetector.Subnet = cfg.Subnet
@@ -182,6 +182,7 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 
 	var totalRecords int64
 	var allResults []models.MLResult
+	seenIPs := make(map[uint32]struct{})
 
 	for i, file := range allFiles {
 		if !Silence {
@@ -207,24 +208,55 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 			continue
 		}
 
+		// FlushResults extracts results AND clears maxProbs/maxFeatures,
+		// preventing unbounded memory growth across files.
 		if ext == ".pcap" {
-			pcapDetector.Flush()
+			allResults = append(allResults, pcapDetector.FlushResults(seenIPs)...)
 		} else {
-			netflowDetector.Flush()
+			allResults = append(allResults, netflowDetector.FlushResults(seenIPs)...)
 		}
 		runtime.GC()
 	}
 
 	if netflowDetector != nil {
-		allResults = append(allResults, netflowDetector.CalculateResults()...)
 		totalRecords += netflowDetector.TotalCount()
 	}
 	if pcapDetector != nil {
-		allResults = append(allResults, pcapDetector.CalculateResults()...)
 		totalRecords += pcapDetector.TotalCount()
 	}
 
-	return allResults, totalRecords, nil
+	// Deduplicate: keep only the highest score per IP across all files
+	allResults = deduplicateMaxScore(allResults)
+
+	return allResults, len(seenIPs), totalRecords, nil
+}
+
+// deduplicateMaxScore keeps only the highest-scoring entry per IP.
+// This preserves the original behavior where maxProbs tracked the global
+// maximum, but without holding all IPs in memory simultaneously.
+func deduplicateMaxScore(results []models.MLResult) []models.MLResult {
+	if len(results) == 0 {
+		return results
+	}
+
+	best := make(map[string]int) // IP -> index into deduped
+	var deduped []models.MLResult
+
+	for _, r := range results {
+		if r.IP == "" {
+			continue
+		}
+		if idx, exists := best[r.IP]; exists {
+			if r.Probability > deduped[idx].Probability {
+				deduped[idx] = r
+			}
+		} else {
+			best[r.IP] = len(deduped)
+			deduped = append(deduped, r)
+		}
+	}
+
+	return deduped
 }
 
 func streamFnFor(path string) StreamFn {

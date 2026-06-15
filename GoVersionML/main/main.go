@@ -63,12 +63,12 @@ func run(args []string) error {
 
 	fmt.Fprintf(out, "Scanning %s ...\n", appConfig.InputPath)
 
-	results, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
+	results, totalUnique, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
 	if err != nil {
 		return fmt.Errorf("failed to process input pipeline for %q: %w", appConfig.InputPath, err)
 	}
 
-	reporter.PrintSummary(out, results, totalRecords, time.Since(start))
+	reporter.PrintSummary(out, results, totalUnique, totalRecords, time.Since(start))
 
 	if appConfig.OutputFile != "" {
 		fmt.Printf("Results written to: %s\n", appConfig.OutputFile)

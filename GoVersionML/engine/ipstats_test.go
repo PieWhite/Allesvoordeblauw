@@ -25,7 +25,8 @@ func TestPortSymmetry(t *testing.T) {
 // TestIAT_Math_Precision verifies the Python-style variance calculation.
 func TestIAT_Math_Precision(t *testing.T) {
 	s := NewIPStats()
-	target := TargetKey{IP: "8.8.8.8", Port: 53}
+	ipVal, _ := ParseIPv4("8.8.8.8")
+	target := TargetKey{IP: ipVal, Port: 53}
 
 	// Times: 10.0, 12.0.
 	s.AddTargetStartTime(target, time.Unix(10, 0))
@@ -82,7 +83,7 @@ func TestIPStats_HybridTransition(t *testing.T) {
 	
 	// Add 30 unique Dst IPs to trigger map transition
 	for i := 0; i < 30; i++ {
-		s.AddUniqueDstIP(string([]byte{byte('A' + i)}))
+		s.AddUniqueDstIP(uint32(i + 1))
 	}
 	// Verify that map is populated and count is 30
 	if s.UniqueDstIPsMap == nil {
@@ -92,8 +93,8 @@ func TestIPStats_HybridTransition(t *testing.T) {
 		t.Errorf("expected 30 unique Dst IPs, got %d", s.NumUniqueDstIPs())
 	}
 	// Try adding duplicates and check count
-	s.AddUniqueDstIP("A")
-	s.AddUniqueDstIP("B")
+	s.AddUniqueDstIP(1)
+	s.AddUniqueDstIP(2)
 	if s.NumUniqueDstIPs() != 30 {
 		t.Errorf("expected count to remain 30 after duplicates, got %d", s.NumUniqueDstIPs())
 	}
@@ -139,8 +140,9 @@ func TestIPStats_HybridTransition(t *testing.T) {
 	}
 
 	// Add 30 target start times
+	ipTest, _ := ParseIPv4("1.1.1.1")
 	for i := 0; i < 30; i++ {
-		tk := TargetKey{IP: "1.1.1.1", Port: i}
+		tk := TargetKey{IP: ipTest, Port: i}
 		s.AddTargetStartTime(tk, time.Unix(int64(i), 0))
 	}
 	if s.TargetLastTimesMap == nil {
@@ -150,7 +152,7 @@ func TestIPStats_HybridTransition(t *testing.T) {
 		t.Errorf("expected 29 in slice, got %d", len(s.TargetLastTimes))
 	}
 	// Add same target start time again to verify it updates existing count/times instead of inserting new
-	tk := TargetKey{IP: "1.1.1.1", Port: 5}
+	tk := TargetKey{IP: ipTest, Port: 5}
 	s.AddTargetStartTime(tk, time.Unix(100, 0))
 	if len(s.TargetLastTimes) != 29 {
 		t.Errorf("expected size to remain 29, got %d", len(s.TargetLastTimes))

@@ -7,7 +7,7 @@ import (
 )
 
 type TargetKey struct {
-	IP   string
+	IP   uint32
 	Port int
 }
 
@@ -17,14 +17,14 @@ type TargetLastTime struct {
 }
 
 type IPStats struct {
-	IP                 string
+	IP                 uint32
 	FlowCount          int
 	
 	// Inline first element to avoid slice backing array allocation on heap
 	HasFirstDstIP      bool
-	FirstDstIP         string
-	UniqueDstIPs       []string
-	UniqueDstIPsMap    map[string]struct{}
+	FirstDstIP         uint32
+	UniqueDstIPs       []uint32
+	UniqueDstIPsMap    map[uint32]struct{}
 
 	HasFirstDstPort    bool
 	FirstDstPort       int
@@ -78,36 +78,44 @@ func RecycleIPStats(s *IPStats) {
 }
 
 func (s *IPStats) Reset() {
-	s.IP = ""
+	s.IP = 0
 	s.FlowCount = 0
 	
 	s.HasFirstDstIP = false
-	s.FirstDstIP = ""
-	s.UniqueDstIPs = s.UniqueDstIPs[:0]
-	if s.UniqueDstIPsMap != nil {
-		clear(s.UniqueDstIPsMap)
+	s.FirstDstIP = 0
+	if cap(s.UniqueDstIPs) > 1024 {
+		s.UniqueDstIPs = nil
+	} else {
+		s.UniqueDstIPs = s.UniqueDstIPs[:0]
 	}
+	s.UniqueDstIPsMap = nil
 
 	s.HasFirstDstPort = false
 	s.FirstDstPort = 0
-	s.UniqueDstPorts = s.UniqueDstPorts[:0]
-	if s.UniqueDstPortsMap != nil {
-		clear(s.UniqueDstPortsMap)
+	if cap(s.UniqueDstPorts) > 1024 {
+		s.UniqueDstPorts = nil
+	} else {
+		s.UniqueDstPorts = s.UniqueDstPorts[:0]
 	}
+	s.UniqueDstPortsMap = nil
 
 	s.HasFirstOutbound = false
 	s.FirstOutboundPort = 0
-	s.OutboundDstPorts = s.OutboundDstPorts[:0]
-	if s.OutboundDstPortsMap != nil {
-		clear(s.OutboundDstPortsMap)
+	if cap(s.OutboundDstPorts) > 1024 {
+		s.OutboundDstPorts = nil
+	} else {
+		s.OutboundDstPorts = s.OutboundDstPorts[:0]
 	}
+	s.OutboundDstPortsMap = nil
 
 	s.HasFirstInbound = false
 	s.FirstInboundPort = 0
-	s.InboundDstPorts = s.InboundDstPorts[:0]
-	if s.InboundDstPortsMap != nil {
-		clear(s.InboundDstPortsMap)
+	if cap(s.InboundDstPorts) > 1024 {
+		s.InboundDstPorts = nil
+	} else {
+		s.InboundDstPorts = s.InboundDstPorts[:0]
 	}
+	s.InboundDstPortsMap = nil
 
 	s.TotalBytes = 0
 	s.TotalPackets = 0
@@ -126,29 +134,15 @@ func (s *IPStats) Reset() {
 	s.HasFirstTarget = false
 	s.FirstTarget = TargetKey{}
 	s.FirstTargetLastTime = 0
-	s.TargetLastTimes = s.TargetLastTimes[:0]
-	if s.TargetLastTimesMap != nil {
-		clear(s.TargetLastTimesMap)
+	if cap(s.TargetLastTimes) > 1024 {
+		s.TargetLastTimes = nil
+	} else {
+		s.TargetLastTimes = s.TargetLastTimes[:0]
 	}
+	s.TargetLastTimesMap = nil
 }
 
-func compareTargetKey(a, b TargetKey) int {
-	if a.IP < b.IP {
-		return -1
-	}
-	if a.IP > b.IP {
-		return 1
-	}
-	if a.Port < b.Port {
-		return -1
-	}
-	if a.Port > b.Port {
-		return 1
-	}
-	return 0
-}
-
-func (s *IPStats) AddUniqueDstIP(val string) {
+func (s *IPStats) AddUniqueDstIP(val uint32) {
 	if !s.HasFirstDstIP {
 		s.FirstDstIP = val
 		s.HasFirstDstIP = true
@@ -171,7 +165,7 @@ func (s *IPStats) AddUniqueDstIP(val string) {
 		}
 	}
 	if len(s.UniqueDstIPs) >= 16 {
-		s.UniqueDstIPsMap = make(map[string]struct{})
+		s.UniqueDstIPsMap = make(map[uint32]struct{})
 		for _, v := range s.UniqueDstIPs {
 			s.UniqueDstIPsMap[v] = struct{}{}
 		}

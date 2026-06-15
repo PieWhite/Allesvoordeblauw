@@ -22,8 +22,8 @@ type PcapDetector struct {
 	pcapAggregator *PcapAggregator
 	model          XGBoostModel
 
-	maxProbs      map[string]float64
-	maxFeatures   map[string][]float64
+	maxProbs      map[uint32]float64
+	maxFeatures   map[uint32][]float64
 	topBenign     []BenignIPInfo
 	explainer     *Explainer
 	probMutex     sync.Mutex
@@ -45,8 +45,8 @@ func NewPcapDetector(modelPath string) (*PcapDetector, error) {
 	return &PcapDetector{
 		pcapAggregator: NewPcapAggregator(),
 		model:          loadedModel,
-		maxProbs:       make(map[string]float64),
-		maxFeatures:    make(map[string][]float64),
+		maxProbs:       make(map[uint32]float64),
+		maxFeatures:    make(map[uint32][]float64),
 		topBenign:      make([]BenignIPInfo, 0, 10),
 		explainer:      explainer,
 	}, nil
@@ -156,10 +156,10 @@ func (d *PcapDetector) evaluateBatch(statsBatch []*PcapIPStats) {
 
 	d.probMutex.Lock()
 	if d.maxProbs == nil {
-		d.maxProbs = make(map[string]float64)
+		d.maxProbs = make(map[uint32]float64)
 	}
 	if d.maxFeatures == nil {
-		d.maxFeatures = make(map[string][]float64)
+		d.maxFeatures = make(map[uint32][]float64)
 	}
 	for idx, vPtr := range preds.Vectors {
 		if vPtr == nil || len(*vPtr) == 0 {
@@ -187,7 +187,7 @@ func (d *PcapDetector) evaluateBatch(statsBatch []*PcapIPStats) {
 	d.probMutex.Unlock()
 }
 
-func (d *PcapDetector) updateTopBenign(ip string, prob float64, stats *PcapIPStats) {
+func (d *PcapDetector) updateTopBenign(ip uint32, prob float64, stats *PcapIPStats) {
 	foundIdx := -1
 	for i, info := range d.topBenign {
 		if info.IP == ip {
@@ -231,27 +231,64 @@ func (d *PcapDetector) updateTopBenign(ip string, prob float64, stats *PcapIPSta
 
 // Flush processes all remaining active stats currently in the aggregator
 func (d *PcapDetector) Flush() {
-	flushed := d.pcapAggregator.FlushAll()
-	if len(flushed) > 0 {
-		d.evaluateBatch(flushed)
+	for i := 0; i < numPartitions; i++ {
+		m := d.pcapAggregator.aggregatePartition(i)
+		if len(m) > 0 {
+			statsBatch := make([]*PcapIPStats, 0, len(m))
+			for _, stats := range m {
+				statsBatch = append(statsBatch, stats)
+			}
+			d.evaluateBatch(statsBatch)
+		}
 	}
+	d.pcapAggregator.Close()
 }
 
-// CalculateResults flushes remaining records and formats output
-func (d *PcapDetector) CalculateResults() []models.MLResult {
+// FlushResults flushes all remaining aggregator data, extracts the formatted
+// results, then clears the accumulated maxProbs/maxFeatures maps to free memory.
+// This must be called per-file in directory mode to prevent unbounded growth.
+// It populates the seen map with all unique IPs encountered in this file.
+func (d *PcapDetector) FlushResults(seen map[uint32]struct{}) []models.MLResult {
 	d.Flush()
 
 	d.probMutex.Lock()
 	defer d.probMutex.Unlock()
-	return d.formatResults(d.maxProbs)
+
+	results := d.formatResults(d.maxProbs)
+
+	if seen != nil {
+		for ip := range d.maxProbs {
+			seen[ip] = struct{}{}
+		}
+	}
+
+	// Reset detector state for the next file
+	d.maxProbs = make(map[uint32]float64)
+	d.maxFeatures = make(map[uint32][]float64)
+	d.topBenign = d.topBenign[:0]
+	d.pcapAggregator = NewPcapAggregator()
+	d.TotalRecords = 0
+	d.currentWindow.Store(0)
+
+	return results
 }
 
-func (d *PcapDetector) formatResults(probs map[string]float64) []models.MLResult {
+// CalculateResults flushes remaining records and formats output
+func (d *PcapDetector) CalculateResults() ([]models.MLResult, int) {
+	d.Flush()
+
+	d.probMutex.Lock()
+	defer d.probMutex.Unlock()
+	return d.formatResults(d.maxProbs), len(d.maxProbs)
+}
+
+func (d *PcapDetector) formatResults(probs map[uint32]float64) []models.MLResult {
 	const threshold = 0.50
-	var realResults []models.MLResult
+	realResults := []models.MLResult{}
 
 	for ip, prob := range probs {
-		if d.Subnet != "" && !config.MatchSubnet(ip, d.Subnet) {
+		ipStr := FormatIPv4(ip)
+		if d.Subnet != "" && !config.MatchSubnet(ipStr, d.Subnet) {
 			continue
 		}
 		if prob > threshold {
@@ -262,7 +299,7 @@ func (d *PcapDetector) formatResults(probs map[string]float64) []models.MLResult
 				}
 			}
 			realResults = append(realResults, models.MLResult{
-				IP:          ip,
+				IP:          ipStr,
 				Probability: prob * 100.0,
 				IsBotnet:    true,
 				Explanation: expl,
@@ -271,20 +308,18 @@ func (d *PcapDetector) formatResults(probs map[string]float64) []models.MLResult
 	}
 
 	for _, info := range d.topBenign {
-		if d.Subnet != "" && !config.MatchSubnet(info.IP, d.Subnet) {
+		ipStr := FormatIPv4(info.IP)
+		if d.Subnet != "" && !config.MatchSubnet(ipStr, d.Subnet) {
 			continue
 		}
 		if info.Prob <= threshold {
 			realResults = append(realResults, models.MLResult{
-				IP:          info.IP,
+				IP:          ipStr,
 				Probability: info.Prob * 100.0,
 				IsBotnet:    false,
 			})
 		}
 	}
 
-	totalUniqueIPs := len(probs)
-	results := make([]models.MLResult, totalUniqueIPs)
-	copy(results, realResults)
-	return results
+	return realResults
 }

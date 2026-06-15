@@ -16,8 +16,12 @@ func parseTimeHelper(s string) time.Time {
 }
 
 func getStatsForIP(a *Aggregator, ip string) *IPStats {
+	targetIP, ok := ParseIPv4(ip)
+	if !ok {
+		return nil
+	}
 	for _, s := range a.AllIPStats() {
-		if s.IP == ip {
+		if s.IP == targetIP {
 			return s
 		}
 	}
@@ -199,8 +203,8 @@ func TestAggregator_ExtractAndFlushBefore(t *testing.T) {
 	if len(flushed) != 1 {
 		t.Fatalf("Expected 1 flushed stats, got %d", len(flushed))
 	}
-	if flushed[0].IP != "1.1.1.1" {
-		t.Errorf("Expected IP 1.1.1.1 flushed, got %s", flushed[0].IP)
+	if FormatIPv4(flushed[0].IP) != "1.1.1.1" {
+		t.Errorf("Expected IP 1.1.1.1 flushed, got %s", FormatIPv4(flushed[0].IP))
 	}
 
 	// Verify remaining
@@ -208,8 +212,8 @@ func TestAggregator_ExtractAndFlushBefore(t *testing.T) {
 	if len(remaining) != 1 {
 		t.Fatalf("Expected 1 remaining stats, got %d", len(remaining))
 	}
-	if remaining[0].IP != "2.2.2.2" {
-		t.Errorf("Expected IP 2.2.2.2 remaining, got %s", remaining[0].IP)
+	if FormatIPv4(remaining[0].IP) != "2.2.2.2" {
+		t.Errorf("Expected IP 2.2.2.2 remaining, got %s", FormatIPv4(remaining[0].IP))
 	}
 }
 
