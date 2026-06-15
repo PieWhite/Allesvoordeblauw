@@ -121,11 +121,8 @@ func TestPcapAggregator(t *testing.T) {
 		t.Errorf("expected 3 flushed stats from first window, got %d", len(flushed))
 	}
 
-	for i := 0; i < numPartitions; i++ {
-		m := agg.aggregatePartition(i)
-		for k := range m {
-			t.Logf("Active key: IP=%s, Window=%d", FormatIPv4(k.IP), k.Window)
-		}
+	for k := range agg.IPs {
+		t.Logf("Active key: IP=%s, Window=%d", FormatIPv4(k.IP), k.Window)
 	}
 
 	// Map should have 2 entries left

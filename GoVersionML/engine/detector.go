@@ -240,17 +240,10 @@ func (d *Detector) updateTopBenign(ip uint32, prob float64, stats *IPStats) {
 }
 
 func (d *Detector) Flush() {
-	for i := 0; i < numPartitions; i++ {
-		m := d.aggregator.aggregatePartition(i)
-		if len(m) > 0 {
-			statsBatch := make([]*IPStats, 0, len(m))
-			for _, stats := range m {
-				statsBatch = append(statsBatch, stats)
-			}
-			d.evaluateBatch(statsBatch)
-		}
+	flushed := d.aggregator.FlushAll()
+	if len(flushed) > 0 {
+		d.evaluateBatch(flushed)
 	}
-	d.aggregator.Close()
 }
 
 // FlushResults flushes all remaining aggregator data, extracts the formatted

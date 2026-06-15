@@ -231,17 +231,10 @@ func (d *PcapDetector) updateTopBenign(ip uint32, prob float64, stats *PcapIPSta
 
 // Flush processes all remaining active stats currently in the aggregator
 func (d *PcapDetector) Flush() {
-	for i := 0; i < numPartitions; i++ {
-		m := d.pcapAggregator.aggregatePartition(i)
-		if len(m) > 0 {
-			statsBatch := make([]*PcapIPStats, 0, len(m))
-			for _, stats := range m {
-				statsBatch = append(statsBatch, stats)
-			}
-			d.evaluateBatch(statsBatch)
-		}
+	flushed := d.pcapAggregator.FlushAll()
+	if len(flushed) > 0 {
+		d.evaluateBatch(flushed)
 	}
-	d.pcapAggregator.Close()
 }
 
 // FlushResults flushes all remaining aggregator data, extracts the formatted

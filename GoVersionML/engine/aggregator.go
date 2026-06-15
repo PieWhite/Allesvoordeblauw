@@ -1,13 +1,8 @@
 package engine
 
 import (
-	"bufio"
-	"encoding/binary"
-	"fmt"
-	"io"
 	"log"
-	"os"
-	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,56 +10,37 @@ import (
 	"goversion/models"
 )
 
-const numPartitions = 64
+const numShards = 64
 
 type WindowKey struct {
 	IP     uint32
 	Window int64
 }
 
-type PartitionRecord struct {
-	IP        uint32
-	TargetIP  uint32
-	FirstMs   int64
-	LastMs    int64
-	InBytes   int64
-	InPackets int64
-	Port      uint16
-	Proto     uint16
-	TCPFlags  uint8
-	IsOut     bool
+type Shard struct {
+	sync.RWMutex
+	IPs map[WindowKey]*IPStats
 }
 
 type Aggregator struct {
-	tempDir                string
-	files                  [numPartitions]*os.File
-	buffers                [numPartitions][]PartitionRecord
-	mutexes                [numPartitions]sync.Mutex
+	shards                 [numShards]*Shard
 	timestampWarningLogged atomic.Bool
-	closed                 bool
 }
 
 func NewAggregator() *Aggregator {
-	dir, err := os.MkdirTemp("", "goversion_netflow_parts_*")
-	if err != nil {
-		log.Fatalf("failed to create temp dir for aggregator: %v", err)
-	}
-
-	a := &Aggregator{
-		tempDir: dir,
-	}
-
-	for i := 0; i < numPartitions; i++ {
-		path := filepath.Join(dir, fmt.Sprintf("part_%d.bin", i))
-		f, err := os.Create(path)
-		if err != nil {
-			log.Fatalf("failed to create partition file %s: %v", path, err)
+	a := &Aggregator{}
+	for i := 0; i < numShards; i++ {
+		a.shards[i] = &Shard{
+			IPs: make(map[WindowKey]*IPStats),
 		}
-		a.files[i] = f
-		a.buffers[i] = make([]PartitionRecord, 0, 2048)
 	}
-
 	return a
+}
+
+func (a *Aggregator) getShardIndex(ip uint32) int {
+	// FNV-1a inspired hash for uint32 — fast and well-distributed
+	h := ip * 2654435761 // Knuth's multiplicative hash
+	return int(h >> 26)  // top 6 bits → [0, 63]
 }
 
 func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
@@ -100,27 +76,11 @@ func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
 	return t, false
 }
 
-func encodeTCPFlags(s string) uint8 {
-	var mask uint8
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case 'S':
-			mask |= 1
-		case 'A':
-			mask |= 2
-		case 'F':
-			mask |= 4
-		case 'R':
-			mask |= 8
-		case 'P':
-			mask |= 16
-		case 'E':
-			mask |= 32
-		case 'C':
-			mask |= 64
-		}
+func getWindowKey(ip uint32, t time.Time) WindowKey {
+	return WindowKey{
+		IP:     ip,
+		Window: t.Truncate(5 * time.Minute).Unix(),
 	}
-	return mask
 }
 
 func (a *Aggregator) Update(record models.NetflowRecord) {
@@ -128,323 +88,154 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 	if !ok {
 		return
 	}
-	lastMs := int64(0)
-	if last, ok := a.parseTimestamp(record.Last); ok {
-		lastMs = last.UnixNano() / 1e6
-	}
-	firstMs := first.UnixNano() / 1e6
-
-	flags := encodeTCPFlags(record.TCPFlags)
 
 	if record.Src4Addr != "" {
 		srcIP, srcOk := ParseIPv4(record.Src4Addr)
 		if srcOk {
+			key := getWindowKey(srcIP, first)
+			shardIdx := a.getShardIndex(srcIP)
+			shard := a.shards[shardIdx]
+
 			dstIP, _ := ParseIPv4(record.Dst4Addr)
-			r := PartitionRecord{
-				IP:        srcIP,
-				TargetIP:  dstIP,
-				FirstMs:   firstMs,
-				LastMs:    lastMs,
-				InBytes:   record.InBytes,
-				InPackets: record.InPackets,
-				Port:      uint16(record.DstPort),
-				Proto:     uint16(record.Proto),
-				TCPFlags:  flags,
-				IsOut:     true,
+
+			shard.Lock()
+			stats, exists := shard.IPs[key]
+			if !exists {
+				stats = NewIPStats()
+				stats.IP = srcIP
+				shard.IPs[key] = stats
 			}
-			a.writeToPartition(srcIP, &r)
+
+			a.updateOutboundStats(stats, record, first, dstIP)
+			shard.Unlock()
 		}
 	}
 
 	if record.Dst4Addr != "" {
 		dstIP, dstOk := ParseIPv4(record.Dst4Addr)
 		if dstOk {
-			r := PartitionRecord{
-				IP:       dstIP,
-				FirstMs:  firstMs,
-				Port:     uint16(record.DstPort),
-				IsOut:    false,
+			key := getWindowKey(dstIP, first)
+			shardIdx := a.getShardIndex(dstIP)
+			shard := a.shards[shardIdx]
+
+			shard.Lock()
+			stats, exists := shard.IPs[key]
+			if !exists {
+				stats = NewIPStats()
+				stats.IP = dstIP
+				shard.IPs[key] = stats
 			}
-			a.writeToPartition(dstIP, &r)
+			updateInboundStats(stats, record)
+			shard.Unlock()
 		}
 	}
 }
 
-func (a *Aggregator) writeToPartition(ip uint32, r *PartitionRecord) {
-	pIdx := int(ip % numPartitions)
-	a.mutexes[pIdx].Lock()
-	defer a.mutexes[pIdx].Unlock()
-
-	if a.closed {
-		return
-	}
-
-	a.buffers[pIdx] = append(a.buffers[pIdx], *r)
-	if len(a.buffers[pIdx]) >= 2048 {
-		a.flushBuffer(pIdx)
-	}
-}
-
-func (a *Aggregator) flushBuffer(pIdx int) {
-	records := a.buffers[pIdx]
-	if len(records) == 0 {
-		return
-	}
-
-	bufSize := len(records) * 46
-	buf := make([]byte, bufSize)
-	for i, r := range records {
-		offset := i * 46
-		binary.BigEndian.PutUint32(buf[offset:offset+4], r.IP)
-		binary.BigEndian.PutUint32(buf[offset+4:offset+8], r.TargetIP)
-		binary.BigEndian.PutUint64(buf[offset+8:offset+16], uint64(r.FirstMs))
-		binary.BigEndian.PutUint64(buf[offset+16:offset+24], uint64(r.LastMs))
-		binary.BigEndian.PutUint64(buf[offset+24:offset+32], uint64(r.InBytes))
-		binary.BigEndian.PutUint64(buf[offset+32:offset+40], uint64(r.InPackets))
-		binary.BigEndian.PutUint16(buf[offset+40:offset+42], r.Port)
-		binary.BigEndian.PutUint16(buf[offset+42:offset+44], r.Proto)
-		buf[offset+44] = r.TCPFlags
-		if r.IsOut {
-			buf[offset+45] = 1
-		} else {
-			buf[offset+45] = 0
-		}
-	}
-
-	a.files[pIdx].Write(buf)
-	a.buffers[pIdx] = a.buffers[pIdx][:0]
-}
-
-func (a *Aggregator) Close() {
-	if a.closed {
-		return
-	}
-	a.closed = true
-	for i := 0; i < numPartitions; i++ {
-		a.mutexes[i].Lock()
-		a.flushBuffer(i)
-		if a.files[i] != nil {
-			a.files[i].Close()
-		}
-		a.mutexes[i].Unlock()
-	}
-	if a.tempDir != "" {
-		os.RemoveAll(a.tempDir)
-		a.tempDir = ""
-	}
-}
-
-var readerPool64k = sync.Pool{
-	New: func() interface{} {
-		return bufio.NewReaderSize(nil, 65536)
-	},
-}
-
-func (a *Aggregator) readPartition(pIdx int, callback func(*PartitionRecord)) error {
-	a.mutexes[pIdx].Lock()
-	a.flushBuffer(pIdx)
-	a.mutexes[pIdx].Unlock()
-
-	f, err := os.Open(filepath.Join(a.tempDir, fmt.Sprintf("part_%d.bin", pIdx)))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	r := readerPool64k.Get().(*bufio.Reader)
-	r.Reset(f)
-	defer readerPool64k.Put(r)
-
-	var buf [46]byte
-	for {
-		var rec PartitionRecord
-		_, err := io.ReadFull(r, buf[:])
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		rec.IP = binary.BigEndian.Uint32(buf[0:4])
-		rec.TargetIP = binary.BigEndian.Uint32(buf[4:8])
-		rec.FirstMs = int64(binary.BigEndian.Uint64(buf[8:16]))
-		rec.LastMs = int64(binary.BigEndian.Uint64(buf[16:24]))
-		rec.InBytes = int64(binary.BigEndian.Uint64(buf[24:32]))
-		rec.InPackets = int64(binary.BigEndian.Uint64(buf[32:40]))
-		rec.Port = binary.BigEndian.Uint16(buf[40:42])
-		rec.Proto = binary.BigEndian.Uint16(buf[42:44])
-		rec.TCPFlags = buf[44]
-		rec.IsOut = buf[45] == 1
-
-		callback(&rec)
-	}
-	return nil
-}
-
-func (a *Aggregator) aggregatePartition(pIdx int) map[WindowKey]*IPStats {
-	m := make(map[WindowKey]*IPStats)
-	a.readPartition(pIdx, func(rec *PartitionRecord) {
-		first := time.Unix(0, rec.FirstMs * 1e6)
-		key := WindowKey{
-			IP:     rec.IP,
-			Window: first.Truncate(5 * time.Minute).Unix(),
-		}
-		stats, exists := m[key]
-		if !exists {
-			stats = NewIPStats()
-			stats.IP = rec.IP
-			m[key] = stats
-		}
-		a.updateStatsFromRecord(stats, rec, first)
-	})
-	return m
-}
-
-func (a *Aggregator) updateStatsFromRecord(stats *IPStats, rec *PartitionRecord, first time.Time) {
-	if rec.IsOut {
-		stats.FlowCount++
-		stats.AddUniqueDstIP(rec.TargetIP)
-		stats.AddUniqueDstPort(int(rec.Port))
-		stats.AddOutboundDstPort(int(rec.Port))
-		stats.TotalBytes += float64(rec.InBytes)
-		stats.TotalPackets += float64(rec.InPackets)
-
-		switch rec.Proto {
-		case 6:
-			stats.TCPCount++
-		case 17:
-			stats.UDPCount++
-		case 1:
-			stats.ICMPCount++
-		}
-
-		if (rec.TCPFlags & 1) != 0 && (rec.TCPFlags & (2|4|8)) == 0 {
-			stats.SynOnlyCount++
-		}
-		if (rec.TCPFlags & 8) != 0 {
-			stats.RstCount++
-		}
-
-		if rec.Port < 1024 {
-			stats.WellKnownPortCount++
-		}
-
-		tKey := TargetKey{IP: rec.TargetIP, Port: int(rec.Port)}
-		stats.AddTargetStartTime(tKey, first)
-
-		if rec.LastMs > 0 {
-			duration := float64(rec.LastMs - rec.FirstMs) / 1000.0
-			if duration < 0 {
-				duration = 0
-			}
-			stats.SumDurationSec += duration
-		}
-	} else {
-		stats.AddInboundDstPort(int(rec.Port))
-	}
-}
-
+// AllIPStats safely collects all IPStats across shards
 func (a *Aggregator) AllIPStats() []*IPStats {
 	var all []*IPStats
-	for i := 0; i < numPartitions; i++ {
-		m := a.aggregatePartition(i)
-		for _, stats := range m {
+	for i := 0; i < numShards; i++ {
+		shard := a.shards[i]
+		shard.RLock()
+		for _, stats := range shard.IPs {
 			all = append(all, stats)
 		}
+		shard.RUnlock()
 	}
 	return all
 }
 
+func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time, dstIP uint32) {
+	stats.FlowCount++
+
+	stats.AddUniqueDstIP(dstIP)
+	stats.AddUniqueDstPort(record.DstPort)
+	stats.AddOutboundDstPort(record.DstPort)
+
+	stats.TotalBytes += float64(record.InBytes)
+	stats.TotalPackets += float64(record.InPackets)
+
+	switch record.Proto {
+	case 6:
+		stats.TCPCount++
+	case 17:
+		stats.UDPCount++
+	case 1:
+		stats.ICMPCount++
+	}
+
+	if strings.Contains(record.TCPFlags, "S") && !strings.ContainsAny(record.TCPFlags, "AFR") {
+		stats.SynOnlyCount++
+	}
+	if strings.Contains(record.TCPFlags, "R") {
+		stats.RstCount++
+	}
+
+	if record.DstPort < 1024 {
+		stats.WellKnownPortCount++
+	}
+
+	a.updateTimingMetrics(stats, record, first, dstIP)
+}
+
+func updateInboundStats(stats *IPStats, record models.NetflowRecord) {
+	stats.AddInboundDstPort(record.DstPort)
+}
+
+func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord, first time.Time, dstIP uint32) {
+	tKey := TargetKey{IP: dstIP, Port: record.DstPort}
+	s.AddTargetStartTime(tKey, first)
+
+	if last, ok := a.parseTimestamp(record.Last); ok {
+		duration := last.Sub(first).Seconds()
+		if duration < 0 {
+			duration = 0
+		}
+		s.SumDurationSec += duration
+	}
+}
+
+// ExtractAndFlushBefore removes and returns all IPStats from windows older than the specified timestamp
 func (a *Aggregator) ExtractAndFlushBefore(window int64) []*IPStats {
 	var flushed []*IPStats
-	for i := 0; i < numPartitions; i++ {
-		m := make(map[WindowKey]*IPStats)
-		var active []PartitionRecord
-
-		a.readPartition(i, func(rec *PartitionRecord) {
-			first := time.Unix(0, rec.FirstMs * 1e6)
-			win := first.Truncate(5 * time.Minute).Unix()
-			if win < window {
-				key := WindowKey{IP: rec.IP, Window: win}
-				stats, exists := m[key]
-				if !exists {
-					stats = NewIPStats()
-					stats.IP = rec.IP
-					m[key] = stats
-				}
-				a.updateStatsFromRecord(stats, rec, first)
-			} else {
-				active = append(active, *rec)
+	for i := 0; i < numShards; i++ {
+		shard := a.shards[i]
+		shard.Lock()
+		for key, stats := range shard.IPs {
+			if key.Window < window {
+				flushed = append(flushed, stats)
+				delete(shard.IPs, key)
 			}
-		})
-
-		for _, stats := range m {
-			flushed = append(flushed, stats)
 		}
-
-		a.rewritePartition(i, active)
+		shard.Unlock()
 	}
 	return flushed
 }
 
-func (a *Aggregator) rewritePartition(pIdx int, records []PartitionRecord) {
-	a.mutexes[pIdx].Lock()
-	defer a.mutexes[pIdx].Unlock()
-
-	a.files[pIdx].Close()
-
-	path := filepath.Join(a.tempDir, fmt.Sprintf("part_%d.bin", pIdx))
-	f, err := os.Create(path)
-	if err != nil {
-		log.Fatalf("failed to recreate partition file %s: %v", path, err)
-	}
-	a.files[pIdx] = f
-	a.buffers[pIdx] = a.buffers[pIdx][:0]
-
-	if len(records) == 0 {
-		return
-	}
-
-	bufSize := len(records) * 46
-	buf := make([]byte, bufSize)
-	for i, r := range records {
-		offset := i * 46
-		binary.BigEndian.PutUint32(buf[offset:offset+4], r.IP)
-		binary.BigEndian.PutUint32(buf[offset+4:offset+8], r.TargetIP)
-		binary.BigEndian.PutUint64(buf[offset+8:offset+16], uint64(r.FirstMs))
-		binary.BigEndian.PutUint64(buf[offset+16:offset+24], uint64(r.LastMs))
-		binary.BigEndian.PutUint64(buf[offset+24:offset+32], uint64(r.InBytes))
-		binary.BigEndian.PutUint64(buf[offset+32:offset+40], uint64(r.InPackets))
-		binary.BigEndian.PutUint16(buf[offset+40:offset+42], r.Port)
-		binary.BigEndian.PutUint16(buf[offset+42:offset+44], r.Proto)
-		buf[offset+44] = r.TCPFlags
-		if r.IsOut {
-			buf[offset+45] = 1
-		} else {
-			buf[offset+45] = 0
-		}
-	}
-	a.files[pIdx].Write(buf)
-}
-
+// FlushAll removes and returns all IPStats currently in the aggregator, leaving it completely empty.
 func (a *Aggregator) FlushAll() []*IPStats {
-	var all []*IPStats
-	for i := 0; i < numPartitions; i++ {
-		m := a.aggregatePartition(i)
-		for _, stats := range m {
-			all = append(all, stats)
+	var flushed []*IPStats
+	for i := 0; i < numShards; i++ {
+		shard := a.shards[i]
+		shard.Lock()
+		for key, stats := range shard.IPs {
+			flushed = append(flushed, stats)
+			delete(shard.IPs, key)
 		}
+		shard.Unlock()
 	}
-	a.Close()
-	return all
+	return flushed
 }
+
+func (a *Aggregator) Close() {}
 
 func (a *Aggregator) NumActiveKeys() int {
 	var count int
-	for i := 0; i < numPartitions; i++ {
-		m := a.aggregatePartition(i)
-		count += len(m)
+	for i := 0; i < numShards; i++ {
+		shard := a.shards[i]
+		shard.RLock()
+		count += len(shard.IPs)
+		shard.RUnlock()
 	}
 	return count
 }
