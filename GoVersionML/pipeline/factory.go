@@ -182,23 +182,22 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 
 	var totalRecords int64
 	var allResults []models.MLResult
-	seenIPs := make(map[uint32]struct{})
+	seenIPs := engine.NewHyperLogLog(14)
 
 	for i, file := range allFiles {
 		if !Silence {
 			fmt.Printf("Processing file %d/%d: %s\n", i+1, totalFiles, filepath.Base(file))
 		}
 		ext := strings.ToLower(filepath.Ext(file))
-		var err error
-
+		var count int64
 		if ext == ".pcap" {
-			_, err = ProcessPcapFile(file, pcapDetector, scanner.StreamPCAP)
+			count, err = ProcessPcapFile(file, pcapDetector, scanner.StreamPCAP)
 		} else if ext == ".csv" {
-			_, err = ProcessFile(file, netflowDetector, scanner.StreamCSV)
+			count, err = ProcessFile(file, netflowDetector, scanner.StreamCSV)
 		} else if ext == ".json" {
-			_, err = ProcessFile(file, netflowDetector, scanner.StreamJSON)
+			count, err = ProcessFile(file, netflowDetector, scanner.StreamJSON)
 		} else if ext == ".ndjson" {
-			_, err = ProcessFile(file, netflowDetector, scanner.StreamNDJSON)
+			count, err = ProcessFile(file, netflowDetector, scanner.StreamNDJSON)
 		}
 
 		if err != nil {
@@ -207,6 +206,7 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 			}
 			continue
 		}
+		totalRecords += count
 
 		// FlushResults extracts results AND clears maxProbs/maxFeatures,
 		// preventing unbounded memory growth across files.
@@ -218,17 +218,11 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 		runtime.GC()
 	}
 
-	if netflowDetector != nil {
-		totalRecords += netflowDetector.TotalCount()
-	}
-	if pcapDetector != nil {
-		totalRecords += pcapDetector.TotalCount()
-	}
 
 	// Deduplicate: keep only the highest score per IP across all files
 	allResults = deduplicateMaxScore(allResults)
 
-	return allResults, len(seenIPs), totalRecords, nil
+	return allResults, seenIPs.Estimate(), totalRecords, nil
 }
 
 // deduplicateMaxScore keeps only the highest-scoring entry per IP.

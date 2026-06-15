@@ -37,6 +37,7 @@ type Detector struct {
 	probMutex     sync.Mutex
 	currentWindow atomic.Int64
 	Subnet        string
+	SeenIPs       *HyperLogLog
 }
 
 func NewDetector(modelPath string) (*Detector, error) {
@@ -57,6 +58,7 @@ func NewDetector(modelPath string) (*Detector, error) {
 		maxFeatures: make(map[uint32][]float64),
 		topBenign:   make([]BenignIPInfo, 0, 10),
 		explainer:   explainer,
+		SeenIPs:     NewHyperLogLog(14),
 	}, nil
 }
 
@@ -174,10 +176,13 @@ func (d *Detector) evaluateBatch(statsBatch []*IPStats) {
 		prob := float64((*vPtr)[0])
 		ip := statsBatch[idx].IP
 
-		if currentMax, exists := d.maxProbs[ip]; !exists || prob > currentMax {
-			d.maxProbs[ip] = prob
+		if d.SeenIPs != nil {
+			d.SeenIPs.Add(ip)
+		}
 
-			if prob > 0.50 {
+		if prob >= 0.50 {
+			if currentMax, exists := d.maxProbs[ip]; !exists || prob > currentMax {
+				d.maxProbs[ip] = prob
 				d.maxFeatures[ip] = statsBatch[idx].ToMLVector()
 				for i, info := range d.topBenign {
 					if info.IP == ip {
@@ -185,9 +190,9 @@ func (d *Detector) evaluateBatch(statsBatch []*IPStats) {
 						break
 					}
 				}
-			} else {
-				d.updateTopBenign(ip, prob, statsBatch[idx])
 			}
+		} else {
+			d.updateTopBenign(ip, prob, statsBatch[idx])
 		}
 	}
 	d.probMutex.Unlock()
@@ -250,7 +255,7 @@ func (d *Detector) Flush() {
 // results, then clears the accumulated maxProbs/maxFeatures maps to free memory.
 // This must be called per-file in directory mode to prevent unbounded growth.
 // It populates the seen map with all unique IPs encountered in this file.
-func (d *Detector) FlushResults(seen map[uint32]struct{}) []models.MLResult {
+func (d *Detector) FlushResults(seen *HyperLogLog) []models.MLResult {
 	d.Flush()
 
 	d.probMutex.Lock()
@@ -258,10 +263,8 @@ func (d *Detector) FlushResults(seen map[uint32]struct{}) []models.MLResult {
 
 	results := d.formatResults(d.maxProbs)
 
-	if seen != nil {
-		for ip := range d.maxProbs {
-			seen[ip] = struct{}{}
-		}
+	if seen != nil && d.SeenIPs != nil {
+		seen.Merge(d.SeenIPs)
 	}
 
 	// Reset detector state for the next file
@@ -271,6 +274,7 @@ func (d *Detector) FlushResults(seen map[uint32]struct{}) []models.MLResult {
 	d.aggregator = NewAggregator()
 	d.TotalRecords = 0
 	d.currentWindow.Store(0)
+	d.SeenIPs = NewHyperLogLog(14)
 
 	return results
 }
@@ -280,7 +284,12 @@ func (d *Detector) CalculateResults() ([]models.MLResult, int) {
 
 	d.probMutex.Lock()
 	defer d.probMutex.Unlock()
-	return d.formatResults(d.maxProbs), len(d.maxProbs)
+
+	uniqueCount := 0
+	if d.SeenIPs != nil {
+		uniqueCount = d.SeenIPs.Estimate()
+	}
+	return d.formatResults(d.maxProbs), uniqueCount
 }
 
 func (d *Detector) formatResults(probs map[uint32]float64) []models.MLResult {

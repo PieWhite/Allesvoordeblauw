@@ -70,14 +70,15 @@ func TestEvaluateBatch_SparseVectorOptimization(t *testing.T) {
 			t.Errorf("Expected empty sparse vector, got length %d", len(input.Vectors[0]))
 		}
 		// Library returns float32
-		val := float32(0.1)
+		val := float32(0.7)
 		return mat.Matrix{Vectors: []*mat.Vector{{val}}}, nil
 	}
 
 	d.evaluateBatch([]*IPStats{stats})
 
 	// FIXED: Use epsilon comparison to handle float32 -> float64 conversion drift
-	const expected = 0.1
+	const expected = 0.7
+
 	const epsilon = 1e-7
 	ipVal, _ := ParseIPv4("1.2.3.4")
 	prob := d.maxProbs[ipVal]
