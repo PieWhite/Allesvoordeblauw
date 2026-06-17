@@ -23,6 +23,7 @@ func PrintSummary(out io.Writer, results []models.MLResult, totalUniqueIPs int, 
 		return realResults[i].Probability > realResults[j].Probability
 	})
 
+	fmt.Fprintf(out, "Execution time: %.4f seconds\n", duration.Seconds())
 	fmt.Fprintln(out)
 
 	var botnetCount int
@@ -48,5 +49,4 @@ func PrintSummary(out io.Writer, results []models.MLResult, totalUniqueIPs int, 
 
 	fmt.Fprintf(out, "\nDone. Processed %d records.\n", totalRecords)
 	fmt.Fprintf(out, "Identified %d specific Botnet IPs out of %d total communicating IPs.\n", botnetCount, totalUniqueIPs)
-	fmt.Fprintf(out, "Execution time: %.4f seconds\n", duration.Seconds())
 }

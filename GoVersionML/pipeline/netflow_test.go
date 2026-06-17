@@ -10,7 +10,9 @@ import (
 	"testing"
 
 	"goversion/config"
+	"goversion/engine"
 	"goversion/models"
+	"goversion/scanner"
 )
 
 // mockProcessor implements RecordProcessor for testing
@@ -251,4 +253,53 @@ func TestAnalyzeFile(t *testing.T) {
 			t.Errorf("expected 'stream function cannot be nil' error, got: %v", err)
 		}
 	})
+}
+
+func TestProcessFile_ParallelCSV(t *testing.T) {
+	validModel := "../Xgboost/botnet_xgboost.json"
+	detector, err := engine.NewDetector(validModel)
+	if err != nil {
+		t.Fatalf("failed to load model: %v", err)
+	}
+
+	tempFile, err := os.CreateTemp("", "test_input_*.csv")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	csvContent := `ts,te,sa,da,sp,dp,pr,flg,ipkt,ibyt
+2026-05-02T15:04:05.000,2026-05-02T15:05:05.000,1.2.3.4,5.6.7.8,80,443,6,A,10,1000
+2026-05-02T15:04:06.000,2026-05-02T15:05:06.000,1.2.3.4,5.6.7.8,80,443,6,A,20,2000
+`
+	if _, err := tempFile.WriteString(csvContent); err != nil {
+		t.Fatalf("failed to write to temp file: %v", err)
+	}
+	tempFile.Close()
+
+	count, err := ProcessFile(tempFile.Name(), detector, scanner.StreamCSV)
+	if err != nil {
+		t.Fatalf("expected no error in parallel CSV parsing, got %v", err)
+	}
+
+	if count != 2 {
+		t.Errorf("expected count 2, got %d", count)
+	}
+
+	results, uniqueIPs := detector.CalculateResults()
+	if uniqueIPs < 1 {
+		t.Errorf("expected at least 1 unique IP, got %d", uniqueIPs)
+	}
+
+	// Verify we got the result for 1.2.3.4
+	found := false
+	for _, r := range results {
+		if r.IP == "1.2.3.4" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected IP 1.2.3.4 in results, but was not found")
+	}
 }

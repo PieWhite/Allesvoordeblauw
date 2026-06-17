@@ -16,6 +16,7 @@ require (
 	github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/chewxy/math32 v1.10.1 // indirect
+	github.com/dmitryikh/leaves v0.0.0-20230708180554-25d19a787328 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/golang/protobuf v1.4.3 // indirect
 	github.com/josharian/intern v1.0.0 // indirect

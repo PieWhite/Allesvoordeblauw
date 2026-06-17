@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -102,6 +103,26 @@ func formatIPv4(buf []byte, ip []byte) int {
 // using pooled 1MB readers, static TCP flags cache, and a thread-local IP string cache
 // to guarantee exactly zero heap allocations for already-seen IPs and eliminate memory corruption.
 func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
+	ch := make(chan []models.PcapRecord, 10)
+	var streamErr error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		streamErr = StreamPCAPToChannel(context.Background(), stream, ch)
+		close(ch)
+	}()
+
+	for records := range ch {
+		if processFn != nil {
+			processFn(records)
+		}
+	}
+	wg.Wait()
+	return streamErr
+}
+
+func StreamPCAPToChannel(ctx context.Context, stream io.Reader, out chan<- []models.PcapRecord) error {
 	br := readerPool.Get().(*bufio.Reader)
 	br.Reset(stream)
 	defer func() {
@@ -160,6 +181,12 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 	var packetHeader [16]byte
 
 	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		_, err := io.ReadFull(br, packetHeader[:])
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
@@ -209,7 +236,16 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 				Proto:     2054, // ARP EtherType used as sentinel (no IP protocol uses this)
 			})
 			if len(batch.Records) >= 1000 {
-				processFn(batch.Records)
+				if OnRecordsDecoded != nil {
+					OnRecordsDecoded(int64(len(batch.Records)))
+				}
+				recordsToSend := make([]models.PcapRecord, len(batch.Records))
+				copy(recordsToSend, batch.Records)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case out <- recordsToSend:
+				}
 				batch.Records = batch.Records[:0]
 			}
 			continue
@@ -280,13 +316,31 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 		})
 
 		if len(batch.Records) >= 1000 {
-			processFn(batch.Records)
+			if OnRecordsDecoded != nil {
+				OnRecordsDecoded(int64(len(batch.Records)))
+			}
+			recordsToSend := make([]models.PcapRecord, len(batch.Records))
+			copy(recordsToSend, batch.Records)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case out <- recordsToSend:
+			}
 			batch.Records = batch.Records[:0]
 		}
 	}
 
 	if len(batch.Records) > 0 {
-		processFn(batch.Records)
+		if OnRecordsDecoded != nil {
+			OnRecordsDecoded(int64(len(batch.Records)))
+		}
+		recordsToSend := make([]models.PcapRecord, len(batch.Records))
+		copy(recordsToSend, batch.Records)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case out <- recordsToSend:
+		}
 	}
 
 	return nil

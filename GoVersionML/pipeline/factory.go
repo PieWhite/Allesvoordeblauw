@@ -2,10 +2,12 @@ package pipeline
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,23 +45,15 @@ func RunPipelineForInput(cfg *config.AppConfig) ([]models.MLResult, int, int64, 
 // routeSingleFile dispatches a single file to the correct scanner based on extension.
 func routeSingleFile(cfg *config.AppConfig) ([]models.MLResult, int, int64, error) {
 	ext := strings.ToLower(filepath.Ext(cfg.InputPath))
+	ctx := context.Background()
 
-	switch ext {
-	case ".pcap":
-		resolved := resolveModelPath(true)
-		return AnalyzePcapFile(cfg, resolved, scanner.StreamPCAP)
-	case ".ndjson":
-		resolved := resolveModelPath(false)
-		return AnalyzeFile(cfg, resolved, scanner.StreamNDJSON)
-	case ".json":
-		resolved := resolveModelPath(false)
-		return AnalyzeFile(cfg, resolved, scanner.StreamJSON)
-	case ".csv":
-		resolved := resolveModelPath(false)
-		return AnalyzeFile(cfg, resolved, scanner.StreamCSV)
-	default:
-		return nil, 0, 0, fmt.Errorf("unsupported file extension: %s", ext)
+	if ext == ".pcap" {
+		res := RunPcapFilePipeline(ctx, cfg.InputPath, cfg)
+		return res.Results, res.UniqueIPs, res.TotalRecords, res.Err
 	}
+
+	res := RunNetflowFilePipeline(ctx, cfg.InputPath, cfg)
+	return res.Results, res.UniqueIPs, res.TotalRecords, res.Err
 }
 
 func runDirectoryPipeline(cfg *config.AppConfig) ([]models.MLResult, int, int64, error) {
@@ -150,6 +144,10 @@ func confirmDirectoryParse(cf classifiedFiles) error {
 }
 
 func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]models.MLResult, int, int64, error) {
+	// Enforce a soft memory limit to prevent Go's GC from allowing linear RAM scaling across concurrent workers.
+	// 2.5GB is plenty for the active windows of concurrent file parsing.
+	debug.SetMemoryLimit(2500 * 1024 * 1024)
+
 	// Pre-load models to fail fast if they are unavailable
 	if len(cf.json) > 0 || len(cf.ndjson) > 0 || len(cf.csv) > 0 {
 		resolved := resolveModelPath(false)
@@ -174,8 +172,11 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 	allFiles = append(allFiles, cf.csv...)
 
 	var totalRecords atomic.Int64
-	var allResults []models.MLResult
+
+	// Use a map to merge results on the fly, preventing linear memory scaling of the results array
+	globalResultsMap := make(map[string]models.MLResult)
 	var resultsMutex sync.Mutex
+
 	seenIPs := engine.NewHyperLogLog(14)
 	var seenMutex sync.Mutex
 
@@ -189,35 +190,45 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 	}
 	close(jobs)
 
-	// A single file parse kicks off numCPU/2 internal workers.
-	// Cap file-level concurrency to avoid extreme thrashing or OOM.
 	numWorkers := runtime.NumCPU()
+	if numWorkers > 4 {
+		numWorkers = 4
+	}
+	if numWorkers < 1 {
+		numWorkers = 1
+	}
+	if totalFiles < numWorkers {
+		numWorkers = totalFiles
+	}
+
+	maxConcurrentReaders := numWorkers
+	maxConcurrentFinalizers := 2
+	maxInFlightDetectors := maxConcurrentReaders + maxConcurrentFinalizers
+
+	inFlightDetectorsSem := make(chan struct{}, maxInFlightDetectors)
+	finalizeSem := make(chan struct{}, maxConcurrentFinalizers)
 
 	var wg sync.WaitGroup
+	var resultsWg sync.WaitGroup
+
+	mergeResults := func(res []models.MLResult, detectorSeenIPs *engine.HyperLogLog) {
+		seenMutex.Lock()
+		seenIPs.Merge(detectorSeenIPs)
+		seenMutex.Unlock()
+
+		resultsMutex.Lock()
+		for _, r := range res {
+			if existing, ok := globalResultsMap[r.IP]; !ok || r.Probability > existing.Probability {
+				globalResultsMap[r.IP] = r
+			}
+		}
+		resultsMutex.Unlock()
+	}
+
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-
-			var netflowDetector *engine.Detector
-			var pcapDetector *engine.PcapDetector
-
-			// Each worker holds its own Detector instance for strict 5-min window isolation safely
-			if len(cf.json) > 0 || len(cf.ndjson) > 0 || len(cf.csv) > 0 {
-				netflowDetector, _ = engine.NewDetector(resolveModelPath(false))
-				if netflowDetector != nil && cfg != nil {
-					netflowDetector.Subnet = cfg.Subnet
-				}
-			}
-			if len(cf.pcap) > 0 {
-				pcapDetector, _ = engine.NewPcapDetector(resolveModelPath(true))
-				if pcapDetector != nil && cfg != nil {
-					pcapDetector.Subnet = cfg.Subnet
-				}
-			}
-
-			localSeenIPs := engine.NewHyperLogLog(14)
-			var localResults []models.MLResult
 
 			for job := range jobs {
 				if !Silence {
@@ -227,22 +238,63 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 				var count int64
 				var err error
 
-				if ext == ".pcap" && pcapDetector != nil {
-					count, err = ProcessPcapFile(job.Path, pcapDetector, scanner.StreamPCAP)
+				inFlightDetectorsSem <- struct{}{}
+
+				if ext == ".pcap" {
+					var pcapDetector *engine.PcapDetector
+					pcapDetector, err = engine.NewPcapDetector(resolveModelPath(true))
 					if err == nil {
-						localResults = append(localResults, pcapDetector.FlushResults(localSeenIPs)...)
-					}
-				} else if netflowDetector != nil {
-					if ext == ".csv" {
-						count, err = ProcessFile(job.Path, netflowDetector, scanner.StreamCSV)
-					} else if ext == ".json" {
-						count, err = ProcessFile(job.Path, netflowDetector, scanner.StreamJSON)
-					} else if ext == ".ndjson" {
-						count, err = ProcessFile(job.Path, netflowDetector, scanner.StreamNDJSON)
+						if cfg != nil {
+							pcapDetector.Subnet = cfg.Subnet
+						}
+						count, err = ProcessPcapFile(job.Path, pcapDetector, scanner.StreamPCAP)
 					}
 
 					if err == nil {
-						localResults = append(localResults, netflowDetector.FlushResults(localSeenIPs)...)
+						resultsWg.Add(1)
+						go func(d *engine.PcapDetector) {
+							defer resultsWg.Done()
+							defer func() { <-inFlightDetectorsSem }()
+
+							finalizeSem <- struct{}{}
+							defer func() { <-finalizeSem }()
+
+							res, _ := d.CalculateResults()
+							mergeResults(res, d.SeenIPs)
+						}(pcapDetector)
+					} else {
+						<-inFlightDetectorsSem
+					}
+				} else {
+					var netflowDetector *engine.Detector
+					netflowDetector, err = engine.NewDetector(resolveModelPath(false))
+					if err == nil {
+						if cfg != nil {
+							netflowDetector.Subnet = cfg.Subnet
+						}
+						if ext == ".csv" {
+							count, err = ProcessFile(job.Path, netflowDetector, scanner.StreamCSV)
+						} else if ext == ".json" {
+							count, err = ProcessFile(job.Path, netflowDetector, scanner.StreamJSON)
+						} else if ext == ".ndjson" {
+							count, err = ProcessFile(job.Path, netflowDetector, scanner.StreamNDJSON)
+						}
+					}
+
+					if err == nil {
+						resultsWg.Add(1)
+						go func(d *engine.Detector) {
+							defer resultsWg.Done()
+							defer func() { <-inFlightDetectorsSem }()
+
+							finalizeSem <- struct{}{}
+							defer func() { <-finalizeSem }()
+
+							res, _ := d.CalculateResults()
+							mergeResults(res, d.SeenIPs)
+						}(netflowDetector)
+					} else {
+						<-inFlightDetectorsSem
 					}
 				}
 
@@ -254,50 +306,18 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 					totalRecords.Add(count)
 				}
 			}
-
-			resultsMutex.Lock()
-			allResults = append(allResults, localResults...)
-			resultsMutex.Unlock()
-
-			seenMutex.Lock()
-			seenIPs.Merge(localSeenIPs)
-			seenMutex.Unlock()
 		}()
 	}
 	wg.Wait()
+	resultsWg.Wait()
 
-	// Deduplicate: keep only the highest score per IP across all files
-	allResults = deduplicateMaxScore(allResults)
-
-	return allResults, seenIPs.Estimate(), totalRecords.Load(), nil
-}
-
-// deduplicateMaxScore keeps only the highest-scoring entry per IP.
-// This preserves the original behavior where maxProbs tracked the global
-// maximum, but without holding all IPs in memory simultaneously.
-func deduplicateMaxScore(results []models.MLResult) []models.MLResult {
-	if len(results) == 0 {
-		return results
+	// Convert map back to slice
+	var finalResults []models.MLResult
+	for _, r := range globalResultsMap {
+		finalResults = append(finalResults, r)
 	}
 
-	best := make(map[string]int) // IP -> index into deduped
-	var deduped []models.MLResult
-
-	for _, r := range results {
-		if r.IP == "" {
-			continue
-		}
-		if idx, exists := best[r.IP]; exists {
-			if r.Probability > deduped[idx].Probability {
-				deduped[idx] = r
-			}
-		} else {
-			best[r.IP] = len(deduped)
-			deduped = append(deduped, r)
-		}
-	}
-
-	return deduped
+	return finalResults, seenIPs.Estimate(), totalRecords.Load(), nil
 }
 
 func streamFnFor(path string) StreamFn {

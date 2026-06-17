@@ -55,6 +55,20 @@ func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
 		return time.Date(year, time.Month(month), day, hour, minute, second, msec*1000000, time.UTC), true
 	}
 
+	if len(s) >= 19 && s[4] == '-' && s[10] == ' ' {
+		year := int(s[0]-'0')*1000 + int(s[1]-'0')*100 + int(s[2]-'0')*10 + int(s[3]-'0')
+		month := int(s[5]-'0')*10 + int(s[6]-'0')
+		day := int(s[8]-'0')*10 + int(s[9]-'0')
+		hour := int(s[11]-'0')*10 + int(s[12]-'0')
+		minute := int(s[14]-'0')*10 + int(s[15]-'0')
+		second := int(s[17]-'0')*10 + int(s[18]-'0')
+		msec := 0
+		if len(s) >= 23 && s[19] == '.' {
+			msec = int(s[20]-'0')*100 + int(s[21]-'0')*10 + int(s[22]-'0')
+		}
+		return time.Date(year, time.Month(month), day, hour, minute, second, msec*1000000, time.UTC), true
+	}
+
 	t, err := time.Parse("2006-01-02T15:04:05.000", s)
 	if err == nil {
 		return t, true
@@ -227,8 +241,6 @@ func (a *Aggregator) FlushAll() []*IPStats {
 	return flushed
 }
 
-func (a *Aggregator) Close() {}
-
 func (a *Aggregator) NumActiveKeys() int {
 	var count int
 	for i := 0; i < numShards; i++ {
@@ -239,3 +251,24 @@ func (a *Aggregator) NumActiveKeys() int {
 	}
 	return count
 }
+
+func (a *Aggregator) Merge(other *Aggregator) {
+	for i := 0; i < numShards; i++ {
+		shard := a.shards[i]
+		otherShard := other.shards[i]
+
+		otherShard.Lock()
+		for key, otherStats := range otherShard.IPs {
+			shard.Lock()
+			stats, exists := shard.IPs[key]
+			if !exists {
+				shard.IPs[key] = otherStats
+			} else {
+				stats.Merge(otherStats)
+			}
+			shard.Unlock()
+		}
+		otherShard.Unlock()
+	}
+}
+

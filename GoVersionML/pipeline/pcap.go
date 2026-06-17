@@ -61,6 +61,7 @@ func ProcessPcapFile(inputPath string, processor PcapRecordProcessor, stream Pca
 		reader = &ProgressReader{ // Reuses ProgressReader struct from pipeline/pipeline/common.go
 			r:          file,
 			OnProgress: progressCallback,
+			Path:       inputPath,
 		}
 	}
 

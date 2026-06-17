@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"goversion/config"
+	"goversion/engine"
 	"goversion/models"
 	"goversion/pipeline"
 	"goversion/reporter"
+	"goversion/scanner"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -82,10 +84,16 @@ type Model struct {
 	scanCSVCount    int
 
 	// Background scanning channels
-	sharedBytesRead *int64
-	finishedChan    chan scanFinishedMsg
-	scanTotalBytes  int64
-	scanReadBytes   int64
+	sharedBytesRead         *int64
+	sharedRecordsDecoded    *int64
+	sharedRecordsAggregated *int64
+	sharedWindowsInferred   *int64
+	finishedChan            chan scanFinishedMsg
+	scanTotalBytes          int64
+	scanReadBytes           int64
+	scanRecordsDecoded      int64
+	scanRecordsAggregated   int64
+	scanWindowsInferred     int64
 
 	// Scan results fields
 	scanResults           []models.MLResult
@@ -234,6 +242,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == stateScanning {
 			if m.sharedBytesRead != nil {
 				m.scanReadBytes = atomic.LoadInt64(m.sharedBytesRead)
+			}
+			if m.sharedRecordsDecoded != nil {
+				m.scanRecordsDecoded = atomic.LoadInt64(m.sharedRecordsDecoded)
+			}
+			if m.sharedRecordsAggregated != nil {
+				m.scanRecordsAggregated = atomic.LoadInt64(m.sharedRecordsAggregated)
+			}
+			if m.sharedWindowsInferred != nil {
+				m.scanWindowsInferred = atomic.LoadInt64(m.sharedWindowsInferred)
 			}
 			return m, tick()
 		}
@@ -405,15 +422,64 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				var initialBytes int64
 				m.sharedBytesRead = &initialBytes
+				var initialDecoded int64
+				m.sharedRecordsDecoded = &initialDecoded
+				var initialAggregated int64
+				m.sharedRecordsAggregated = &initialAggregated
+				var initialInferred int64
+				m.sharedWindowsInferred = &initialInferred
 
 				// Fire background scanning thread asynchronously
-				go func(scanPath string, finishedChan chan scanFinishedMsg, sharedBytesRead *int64) {
+				go func(scanPath string, finishedChan chan scanFinishedMsg, sharedBytesRead, sharedRecordsDecoded, sharedRecordsAggregated, sharedWindowsInferred *int64) {
 					old := pipeline.OnProgress
 					pipeline.OnProgress = func(delta int64) {
 						atomic.AddInt64(sharedBytesRead, delta)
 					}
+					oldEvent := pipeline.OnProgressEvent
+					pipeline.OnProgressEvent = func(event pipeline.ProgressEvent) {
+						switch event.Stage {
+						case pipeline.ProgressBytesRead:
+							atomic.AddInt64(sharedBytesRead, event.Delta)
+						case pipeline.ProgressRecordsDecoded:
+							atomic.AddInt64(sharedRecordsDecoded, event.Delta)
+						case pipeline.ProgressRecordsAggregated:
+							atomic.AddInt64(sharedRecordsAggregated, event.Delta)
+						case pipeline.ProgressWindowsInferred:
+							atomic.AddInt64(sharedWindowsInferred, event.Delta)
+						}
+					}
+
+					scanner.OnRecordsDecoded = func(delta int64) {
+						if pipeline.OnProgressEvent != nil {
+							pipeline.OnProgressEvent(pipeline.ProgressEvent{
+								Stage: pipeline.ProgressRecordsDecoded,
+								Delta: delta,
+							})
+						}
+					}
+					engine.OnRecordsAggregated = func(delta int64) {
+						if pipeline.OnProgressEvent != nil {
+							pipeline.OnProgressEvent(pipeline.ProgressEvent{
+								Stage: pipeline.ProgressRecordsAggregated,
+								Delta: delta,
+							})
+						}
+					}
+					engine.OnWindowsInferred = func(delta int64) {
+						if pipeline.OnProgressEvent != nil {
+							pipeline.OnProgressEvent(pipeline.ProgressEvent{
+								Stage: pipeline.ProgressWindowsInferred,
+								Delta: delta,
+							})
+						}
+					}
+
 					defer func() {
 						pipeline.OnProgress = old
+						pipeline.OnProgressEvent = oldEvent
+						scanner.OnRecordsDecoded = nil
+						engine.OnRecordsAggregated = nil
+						engine.OnWindowsInferred = nil
 					}()
 
 					oldSilence := pipeline.Silence
@@ -437,7 +503,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						duration:              duration,
 						err:                   err,
 					}
-				}(m.scanPath, m.finishedChan, m.sharedBytesRead)
+				}(m.scanPath, m.finishedChan, m.sharedBytesRead, m.sharedRecordsDecoded, m.sharedRecordsAggregated, m.sharedWindowsInferred)
 
 				return m, tea.Batch(
 					listenForFinished(m.finishedChan),
@@ -707,8 +773,11 @@ func (m Model) View() string {
 			sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Contains: %d JSON, %d NDJSON, %d PCAP, %d CSV files", m.scanJSONCount, m.scanNDJSONCount, m.scanPCAPCount, m.scanCSVCount)) + "\n")
 		}
 
-		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Total Scan Size: %s", formatSize(m.scanTotalBytes))) + "\n")
-		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Bytes Processed: %s", formatSize(m.scanReadBytes))) + "\n\n")
+		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Total Scan Size:    %s", formatSize(m.scanTotalBytes))) + "\n")
+		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Bytes Processed:    %s", formatSize(m.scanReadBytes))) + "\n")
+		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Records Decoded:    %d", m.scanRecordsDecoded)) + "\n")
+		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Records Aggregated: %d", m.scanRecordsAggregated)) + "\n")
+		sb.WriteString("  " + textStyle.Render(fmt.Sprintf("Windows Inferred:   %d", m.scanWindowsInferred)) + "\n\n")
 
 		// Compute dynamic percentages
 		pct := 0.0

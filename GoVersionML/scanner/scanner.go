@@ -3,6 +3,7 @@ package scanner
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -72,6 +73,8 @@ type workerResult struct {
 	batch   *Batch
 }
 
+var OnRecordsDecoded func(delta int64)
+
 func StreamJSON(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 	return StreamNetflow(stream, processFn, false)
 }
@@ -81,6 +84,26 @@ func StreamNDJSON(stream io.Reader, processFn func([]models.NetflowRecord)) erro
 }
 
 func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isNDJSON bool) error {
+	ch := make(chan []models.NetflowRecord, 10)
+	var streamErr error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		streamErr = StreamNetflowToChannel(context.Background(), stream, ch, isNDJSON)
+		close(ch)
+	}()
+
+	for records := range ch {
+		if processFn != nil {
+			processFn(records)
+		}
+	}
+	wg.Wait()
+	return streamErr
+}
+
+func StreamNetflowToChannel(ctx context.Context, stream io.Reader, out chan<- []models.NetflowRecord, isNDJSON bool) error {
 	numWorkers := utils.OptimalWorkerCount()
 
 	chunksChan := make(chan *Batch, numWorkers*2)
@@ -92,7 +115,7 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go Worker(chunksChan, resultsChan, &wg, isNDJSON, &hasError)
+		go Worker(chunksChan, resultsChan, &wg, isNDJSON, &hasError, nil)
 	}
 
 	if isNDJSON {
@@ -110,7 +133,24 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 	expectedSeq := 0
 	pendingResults := make(map[int]workerResult)
 
+	checkCancel := func() bool {
+		select {
+		case <-ctx.Done():
+			hasError.Store(true)
+			if firstErr == nil {
+				firstErr = ctx.Err()
+			}
+			return true
+		default:
+			return false
+		}
+	}
+
 	for res := range resultsChan {
+		if checkCancel() {
+			break
+		}
+
 		if res.batch != nil {
 			pendingResults[res.batch.Sequence] = res
 		}
@@ -127,13 +167,20 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 			}
 
 			if nextRes.records != nil && len(*nextRes.records) > 0 {
-				processFn(*nextRes.records)
-			}
-
-			if nextRes.records != nil {
-				recordsPtr := nextRes.records
-				*recordsPtr = (*recordsPtr)[:0]
-				recordsPool.Put(recordsPtr)
+				if OnRecordsDecoded != nil {
+					OnRecordsDecoded(int64(len(*nextRes.records)))
+				}
+				select {
+				case <-ctx.Done():
+					hasError.Store(true)
+					if firstErr == nil {
+						firstErr = ctx.Err()
+					}
+					recordsPtr := nextRes.records
+					*recordsPtr = (*recordsPtr)[:0]
+					recordsPool.Put(recordsPtr)
+				case out <- *nextRes.records:
+				}
 			}
 
 			if nextRes.batch != nil {
@@ -143,7 +190,6 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 		}
 	}
 
-	// Drain pendingResults in order at shutdown, treating missing sequence numbers as empty batches
 	for len(pendingResults) > 0 {
 		nextRes, found := pendingResults[expectedSeq]
 		if found {
@@ -154,13 +200,20 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 			}
 
 			if nextRes.records != nil && len(*nextRes.records) > 0 {
-				processFn(*nextRes.records)
-			}
-
-			if nextRes.records != nil {
-				recordsPtr := nextRes.records
-				*recordsPtr = (*recordsPtr)[:0]
-				recordsPool.Put(recordsPtr)
+				if OnRecordsDecoded != nil {
+					OnRecordsDecoded(int64(len(*nextRes.records)))
+				}
+				select {
+				case <-ctx.Done():
+					hasError.Store(true)
+					if firstErr == nil {
+						firstErr = ctx.Err()
+					}
+					recordsPtr := nextRes.records
+					*recordsPtr = (*recordsPtr)[:0]
+					recordsPool.Put(recordsPtr)
+				case out <- *nextRes.records:
+				}
 			}
 
 			if nextRes.batch != nil {
@@ -244,7 +297,7 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, 
 	errChan <- scanner.Err()
 }
 
-func Worker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sync.WaitGroup, isNDJSON bool, hasError *atomic.Bool) {
+func Worker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sync.WaitGroup, isNDJSON bool, hasError *atomic.Bool, processFn func([]models.NetflowRecord)) {
 	defer wg.Done()
 
 	for batch := range chunksChan {
@@ -286,7 +339,7 @@ func Worker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sync.
 			resultsChan <- workerResult{records: recordsPtr, err: firstErr, batch: batch}
 		} else {
 			recordsPool.Put(recordsPtr)
-			batchPool.Put(batch)
+			resultsChan <- workerResult{records: nil, err: nil, batch: batch}
 		}
 	}
 }

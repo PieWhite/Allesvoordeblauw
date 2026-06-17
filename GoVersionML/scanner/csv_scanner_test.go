@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -243,3 +245,81 @@ func BenchmarkStreamCSV(b *testing.B) {
 		})
 	}
 }
+
+func TestStreamCSV_PartialError(t *testing.T) {
+	csvData := `ts,sa,da,sp,dp,pr,ipkt,ibyt
+2023-01-01 00:00:00,192.168.1.1,10.0.0.1,1234,80,TCP,10,1000
+2023-01-01 00:00:02,192.168.1.1,10.0.0.1,INVALID_PORT,80,TCP,10,1000
+`
+	reader := strings.NewReader(csvData)
+
+	var processed []models.NetflowRecord
+	err := StreamCSV(reader, func(records []models.NetflowRecord) {
+		processed = append(processed, records...)
+	})
+
+	if err == nil {
+		t.Fatal("Expected error due to invalid port, but got nil")
+	}
+
+	if len(processed) != 1 {
+		t.Fatalf("Expected 1 successfully parsed record before the error, got %d", len(processed))
+	}
+
+	if processed[0].SrcPort != 1234 {
+		t.Errorf("Expected SrcPort 1234, got %d", processed[0].SrcPort)
+	}
+}
+
+func TestParallelStreamCSV(t *testing.T) {
+	// Create a temp file
+	tempFile, err := os.CreateTemp("", "test_parallel_csv_*.csv")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
+	csvContent := `ts,te,sa,da,sp,dp,pr,flg,ipkt,ibyt
+2023-01-01 00:00:00,2023-01-01 00:00:01,192.168.1.1,10.0.0.1,1234,80,TCP,.A.S...F,10,1000
+2023-01-01 00:00:02,2023-01-01 00:00:03,192.168.1.2,10.0.0.2,1235,443,UDP,........,5,250
+`
+	if _, err := tempFile.WriteString(csvContent); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+	tempFile.Close()
+
+	var records []models.NetflowRecord
+	var mu sync.Mutex
+
+	err = ParallelStreamCSV(tempFile.Name(), nil, func(workerID int, recs []models.NetflowRecord) {
+		mu.Lock()
+		records = append(records, recs...)
+		mu.Unlock()
+	})
+
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if len(records) != 2 {
+		t.Fatalf("Expected 2 records, got %d", len(records))
+	}
+
+	// Sort records by first timestamp to handle potential parallel chunk out-of-order merging
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].First < records[j].First
+	})
+
+	r1 := records[0]
+	if r1.First != "2023-01-01 00:00:00" || r1.Src4Addr != "192.168.1.1" || r1.SrcPort != 1234 {
+		t.Errorf("Record 1 incorrect: %+v", r1)
+	}
+
+	r2 := records[1]
+	if r2.First != "2023-01-01 00:00:02" || r2.Src4Addr != "192.168.1.2" || r2.SrcPort != 1235 {
+		t.Errorf("Record 2 incorrect: %+v", r2)
+	}
+}
+
+

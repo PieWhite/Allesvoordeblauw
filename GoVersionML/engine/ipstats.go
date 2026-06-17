@@ -460,3 +460,65 @@ func (s *IPStats) calculateIATMetrics() (mean float64, variance float64, cv floa
 	}
 	return mean, variance, cv
 }
+
+func (s *IPStats) Merge(other *IPStats) {
+	s.FlowCount += other.FlowCount
+	s.TotalBytes += other.TotalBytes
+	s.TotalPackets += other.TotalPackets
+	s.TCPCount += other.TCPCount
+	s.UDPCount += other.UDPCount
+	s.ICMPCount += other.ICMPCount
+	s.SynOnlyCount += other.SynOnlyCount
+	s.RstCount += other.RstCount
+	s.WellKnownPortCount += other.WellKnownPortCount
+	s.SumDurationSec += other.SumDurationSec
+
+	// Merge unique destination IPs
+	if other.HasFirstDstIP {
+		s.AddUniqueDstIP(other.FirstDstIP)
+	}
+	for _, ip := range other.UniqueDstIPs {
+		s.AddUniqueDstIP(ip)
+	}
+
+	// Merge unique destination ports
+	if other.HasFirstDstPort {
+		s.AddUniqueDstPort(other.FirstDstPort)
+	}
+	for _, p := range other.UniqueDstPorts {
+		s.AddUniqueDstPort(p)
+	}
+
+	// Merge outbound dst ports
+	if other.HasFirstOutbound {
+		s.AddOutboundDstPort(other.FirstOutboundPort)
+	}
+	for _, p := range other.OutboundDstPorts {
+		s.AddOutboundDstPort(p)
+	}
+
+	// Merge inbound dst ports
+	if other.HasFirstInbound {
+		s.AddInboundDstPort(other.FirstInboundPort)
+	}
+	for _, p := range other.InboundDstPorts {
+		s.AddInboundDstPort(p)
+	}
+
+	// Merge IAT (Inter-Arrival Time) statistics using Chan's parallel variance formula
+	if other.IatCount > 0 {
+		if s.IatCount == 0 {
+			s.IatCount = other.IatCount
+			s.IatMean = other.IatMean
+			s.IatM2 = other.IatM2
+		} else {
+			n1 := s.IatCount
+			n2 := other.IatCount
+			delta := other.IatMean - s.IatMean
+			s.IatCount = n1 + n2
+			s.IatMean = s.IatMean + delta*n2/(n1+n2)
+			s.IatM2 = s.IatM2 + other.IatM2 + delta*delta*n1*n2/(n1+n2)
+		}
+	}
+}
+

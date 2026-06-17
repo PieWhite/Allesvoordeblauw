@@ -3,6 +3,7 @@ package scanner
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"sync"
@@ -10,6 +11,20 @@ import (
 
 	"goversion/models"
 	"goversion/utils"
+)
+
+const (
+	colIgnore = iota
+	colFirst
+	colLast
+	colSrc4Addr
+	colDst4Addr
+	colTCPFlags
+	colSrcPort
+	colDstPort
+	colInPackets
+	colInBytes
+	colProto
 )
 
 // CSVHeaderMap holds the mapped index of each required column in the nfdump CSV output.
@@ -25,6 +40,52 @@ type CSVHeaderMap struct {
 	flgIndex  int // tcp_flags
 	ipktIndex int // in_packets
 	ibytIndex int // in_bytes
+
+	colMap []int
+}
+
+func (m *CSVHeaderMap) InitColMap() {
+	maxIdx := -1
+	idxs := []int{m.tsIndex, m.teIndex, m.saIndex, m.daIndex, m.spIndex, m.dpIndex, m.prIndex, m.flgIndex, m.ipktIndex, m.ibytIndex}
+	for _, idx := range idxs {
+		if idx > maxIdx {
+			maxIdx = idx
+		}
+	}
+	if maxIdx < 0 {
+		return
+	}
+	m.colMap = make([]int, maxIdx+1)
+	if m.tsIndex >= 0 {
+		m.colMap[m.tsIndex] = colFirst
+	}
+	if m.teIndex >= 0 {
+		m.colMap[m.teIndex] = colLast
+	}
+	if m.saIndex >= 0 {
+		m.colMap[m.saIndex] = colSrc4Addr
+	}
+	if m.daIndex >= 0 {
+		m.colMap[m.daIndex] = colDst4Addr
+	}
+	if m.flgIndex >= 0 {
+		m.colMap[m.flgIndex] = colTCPFlags
+	}
+	if m.spIndex >= 0 {
+		m.colMap[m.spIndex] = colSrcPort
+	}
+	if m.dpIndex >= 0 {
+		m.colMap[m.dpIndex] = colDstPort
+	}
+	if m.ipktIndex >= 0 {
+		m.colMap[m.ipktIndex] = colInPackets
+	}
+	if m.ibytIndex >= 0 {
+		m.colMap[m.ibytIndex] = colInBytes
+	}
+	if m.prIndex >= 0 {
+		m.colMap[m.prIndex] = colProto
+	}
 }
 
 // parseCSVHeader dynamically maps CSV header columns to their index positions.
@@ -73,6 +134,7 @@ func parseCSVHeader(header []byte) CSVHeaderMap {
 			colIdx++
 		}
 	}
+	m.InitColMap()
 	return m
 }
 
@@ -122,48 +184,53 @@ func parseProtoBytes(b []byte) int {
 func parseCSVLine(line []byte, record *models.NetflowRecord, headerMap CSVHeaderMap) error {
 	colIdx := 0
 	start := 0
+	numCols := len(headerMap.colMap)
 
 	for i := 0; i <= len(line); i++ {
 		if i == len(line) || line[i] == ',' {
-			cell := line[start:i]
-
-			switch colIdx {
-			case headerMap.tsIndex:
-				record.First = string(cell)
-			case headerMap.teIndex:
-				record.Last = string(cell)
-			case headerMap.saIndex:
-				record.Src4Addr = string(cell)
-			case headerMap.daIndex:
-				record.Dst4Addr = string(cell)
-			case headerMap.flgIndex:
-				record.TCPFlags = string(cell)
-			case headerMap.spIndex:
-				val, err := parseUintBytes(cell)
-				if err != nil {
-					return fmt.Errorf("invalid src port: %w", err)
+			if colIdx < numCols {
+				target := headerMap.colMap[colIdx]
+				if target != colIgnore {
+					cell := line[start:i]
+					switch target {
+					case colFirst:
+						record.First = string(cell)
+					case colLast:
+						record.Last = string(cell)
+					case colSrc4Addr:
+						record.Src4Addr = string(cell)
+					case colDst4Addr:
+						record.Dst4Addr = string(cell)
+					case colTCPFlags:
+						record.TCPFlags = string(cell)
+					case colSrcPort:
+						val, err := parseUintBytes(cell)
+						if err != nil {
+							return fmt.Errorf("invalid src port: %w", err)
+						}
+						record.SrcPort = int(val)
+					case colDstPort:
+						val, err := parseUintBytes(cell)
+						if err != nil {
+							return fmt.Errorf("invalid dst port: %w", err)
+						}
+						record.DstPort = int(val)
+					case colInPackets:
+						val, err := parseUintBytes(cell)
+						if err != nil {
+							return fmt.Errorf("invalid packets: %w", err)
+						}
+						record.InPackets = int64(val)
+					case colInBytes:
+						val, err := parseUintBytes(cell)
+						if err != nil {
+							return fmt.Errorf("invalid bytes: %w", err)
+						}
+						record.InBytes = int64(val)
+					case colProto:
+						record.Proto = parseProtoBytes(cell)
+					}
 				}
-				record.SrcPort = int(val)
-			case headerMap.dpIndex:
-				val, err := parseUintBytes(cell)
-				if err != nil {
-					return fmt.Errorf("invalid dst port: %w", err)
-				}
-				record.DstPort = int(val)
-			case headerMap.ipktIndex:
-				val, err := parseUintBytes(cell)
-				if err != nil {
-					return fmt.Errorf("invalid packets: %w", err)
-				}
-				record.InPackets = int64(val)
-			case headerMap.ibytIndex:
-				val, err := parseUintBytes(cell)
-				if err != nil {
-					return fmt.Errorf("invalid bytes: %w", err)
-				}
-				record.InBytes = int64(val)
-			case headerMap.prIndex:
-				record.Proto = parseProtoBytes(cell)
 			}
 
 			start = i + 1
@@ -175,6 +242,26 @@ func parseCSVLine(line []byte, record *models.NetflowRecord, headerMap CSVHeader
 
 // StreamCSV streams and processes nfdump CSV logs concurrently.
 func StreamCSV(stream io.Reader, processFn func([]models.NetflowRecord)) error {
+	ch := make(chan []models.NetflowRecord, 10)
+	var streamErr error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		streamErr = StreamCSVToChannel(context.Background(), stream, ch)
+		close(ch)
+	}()
+
+	for records := range ch {
+		if processFn != nil {
+			processFn(records)
+		}
+	}
+	wg.Wait()
+	return streamErr
+}
+
+func StreamCSVToChannel(ctx context.Context, stream io.Reader, out chan<- []models.NetflowRecord) error {
 	numWorkers := utils.OptimalWorkerCount()
 
 	scanner := bufio.NewScanner(stream)
@@ -213,6 +300,7 @@ func StreamCSV(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 			ipktIndex: 11,
 			ibytIndex: 12,
 		}
+		headerMap.InitColMap()
 		// Treat the first line (read as header) as the first data line instead
 		firstLine = make([]byte, len(headerLine))
 		copy(firstLine, headerLine)
@@ -241,7 +329,24 @@ func StreamCSV(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 	expectedSeq := 0
 	pendingResults := make(map[int]workerResult)
 
+	checkCancel := func() bool {
+		select {
+		case <-ctx.Done():
+			hasError.Store(true)
+			if firstErr == nil {
+				firstErr = ctx.Err()
+			}
+			return true
+		default:
+			return false
+		}
+	}
+
 	for res := range resultsChan {
+		if checkCancel() {
+			break
+		}
+
 		if res.batch != nil {
 			pendingResults[res.batch.Sequence] = res
 		}
@@ -258,13 +363,20 @@ func StreamCSV(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 			}
 
 			if nextRes.records != nil && len(*nextRes.records) > 0 {
-				processFn(*nextRes.records)
-			}
-
-			if nextRes.records != nil {
-				recordsPtr := nextRes.records
-				*recordsPtr = (*recordsPtr)[:0]
-				recordsPool.Put(recordsPtr)
+				if OnRecordsDecoded != nil {
+					OnRecordsDecoded(int64(len(*nextRes.records)))
+				}
+				select {
+				case <-ctx.Done():
+					hasError.Store(true)
+					if firstErr == nil {
+						firstErr = ctx.Err()
+					}
+					recordsPtr := nextRes.records
+					*recordsPtr = (*recordsPtr)[:0]
+					recordsPool.Put(recordsPtr)
+				case out <- *nextRes.records:
+				}
 			}
 
 			if nextRes.batch != nil {
@@ -285,13 +397,20 @@ func StreamCSV(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 			}
 
 			if nextRes.records != nil && len(*nextRes.records) > 0 {
-				processFn(*nextRes.records)
-			}
-
-			if nextRes.records != nil {
-				recordsPtr := nextRes.records
-				*recordsPtr = (*recordsPtr)[:0]
-				recordsPool.Put(recordsPtr)
+				if OnRecordsDecoded != nil {
+					OnRecordsDecoded(int64(len(*nextRes.records)))
+				}
+				select {
+				case <-ctx.Done():
+					hasError.Store(true)
+					if firstErr == nil {
+						firstErr = ctx.Err()
+					}
+					recordsPtr := nextRes.records
+					*recordsPtr = (*recordsPtr)[:0]
+					recordsPool.Put(recordsPtr)
+				case out <- *nextRes.records:
+				}
 			}
 
 			if nextRes.batch != nil {
@@ -423,7 +542,7 @@ func CSVWorker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sy
 			resultsChan <- workerResult{records: recordsPtr, err: firstErr, batch: batch}
 		} else {
 			recordsPool.Put(recordsPtr)
-			batchPool.Put(batch)
+			resultsChan <- workerResult{records: nil, err: nil, batch: batch}
 		}
 	}
 }
