@@ -9,8 +9,8 @@ import (
 // TestPortSymmetry targets the symmetry++ line.
 func TestPortSymmetry(t *testing.T) {
 	s := NewIPStats()
-	s.AddOutboundDstPort(53)
-	s.AddOutboundDstPort(80)
+	s.AddUniqueDstPort(53)
+	s.AddUniqueDstPort(80)
 
 	s.AddInboundDstPort(53)
 	s.AddInboundDstPort(443)
@@ -112,17 +112,6 @@ func TestIPStats_HybridTransition(t *testing.T) {
 	s.AddUniqueDstPort(5)
 	if s.NumUniqueDstPorts() != 30 {
 		t.Errorf("expected count to remain 30, got %d", s.NumUniqueDstPorts())
-	}
-
-	// Add 30 unique Outbound ports
-	for i := 0; i < 30; i++ {
-		s.AddOutboundDstPort(i)
-	}
-	if s.OutboundDstPortsMap == nil {
-		t.Error("expected OutboundDstPortsMap to be initialized")
-	}
-	if len(s.OutboundDstPorts) != 29 { // First goes to FirstOutboundPort
-		t.Errorf("expected 29 elements in slice, got %d", len(s.OutboundDstPorts))
 	}
 
 	// Add 30 unique Inbound ports

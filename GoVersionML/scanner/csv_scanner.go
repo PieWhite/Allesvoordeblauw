@@ -6,8 +6,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	"goversion/models"
 	"goversion/utils"
@@ -56,6 +59,9 @@ func (m *CSVHeaderMap) InitColMap() {
 		return
 	}
 	m.colMap = make([]int, maxIdx+1)
+	for i := range m.colMap {
+		m.colMap[i] = colIgnore
+	}
 	if m.tsIndex >= 0 {
 		m.colMap[m.tsIndex] = colFirst
 	}
@@ -160,14 +166,12 @@ func parseProtoBytes(b []byte) int {
 	if len(b) == 0 {
 		return 0
 	}
-	// Try parsing numeric protocol ID first
 	if b[0] >= '0' && b[0] <= '9' {
 		val, err := parseUintBytes(b)
 		if err == nil {
 			return int(val)
 		}
 	}
-	// Case-insensitive matching for standard protocols
 	if bytes.EqualFold(b, []byte("TCP")) {
 		return 6
 	}
@@ -180,8 +184,14 @@ func parseProtoBytes(b []byte) int {
 	return 0
 }
 
-// parseCSVLine populates a NetflowRecord from a single CSV line based on column indices.
-func parseCSVLine(line []byte, record *models.NetflowRecord, headerMap CSVHeaderMap) error {
+func unsafeString(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	return unsafe.String(&b[0], len(b))
+}
+
+func parseCSVLineUnsafe(line []byte, record *models.NetflowRecord, headerMap CSVHeaderMap) error {
 	colIdx := 0
 	start := 0
 	numCols := len(headerMap.colMap)
@@ -194,15 +204,15 @@ func parseCSVLine(line []byte, record *models.NetflowRecord, headerMap CSVHeader
 					cell := line[start:i]
 					switch target {
 					case colFirst:
-						record.First = string(cell)
+						record.First = unsafeString(cell)
 					case colLast:
-						record.Last = string(cell)
+						record.Last = unsafeString(cell)
 					case colSrc4Addr:
-						record.Src4Addr = string(cell)
+						record.Src4Addr = unsafeString(cell)
 					case colDst4Addr:
-						record.Dst4Addr = string(cell)
+						record.Dst4Addr = unsafeString(cell)
 					case colTCPFlags:
-						record.TCPFlags = string(cell)
+						record.TCPFlags = unsafeString(cell)
 					case colSrcPort:
 						val, err := parseUintBytes(cell)
 						if err != nil {
@@ -240,41 +250,34 @@ func parseCSVLine(line []byte, record *models.NetflowRecord, headerMap CSVHeader
 	return nil
 }
 
-// StreamCSV streams and processes nfdump CSV logs concurrently.
-func StreamCSV(stream io.Reader, processFn func([]models.NetflowRecord)) error {
-	ch := make(chan []models.NetflowRecord, 10)
-	var streamErr error
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		streamErr = StreamCSVToChannel(context.Background(), stream, ch)
-		close(ch)
-	}()
-
-	for records := range ch {
-		if processFn != nil {
-			processFn(records)
-		}
+// cloneRecords clones the slices and strings of a list of NetflowRecords,
+// making it completely safe to retain after the worker batch is recycled.
+func cloneRecords(records []models.NetflowRecord) []models.NetflowRecord {
+	copied := make([]models.NetflowRecord, len(records))
+	for i, r := range records {
+		copied[i] = r
+		copied[i].First = strings.Clone(r.First)
+		copied[i].Last = strings.Clone(r.Last)
+		copied[i].Src4Addr = strings.Clone(r.Src4Addr)
+		copied[i].Dst4Addr = strings.Clone(r.Dst4Addr)
+		copied[i].TCPFlags = strings.Clone(r.TCPFlags)
 	}
-	wg.Wait()
-	return streamErr
+	return copied
 }
 
-func StreamCSVToChannel(ctx context.Context, stream io.Reader, out chan<- []models.NetflowRecord) error {
+// StreamCSV streams and processes CSV logs concurrently using a Producer-Worker model.
+func StreamCSV(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 	numWorkers := utils.OptimalWorkerCount()
 
 	scanner := bufio.NewScanner(stream)
-	// Allocate a robust 64KB initial buffer, up to 10MB maximum line width
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 10*1024*1024)
 
-	// Scan the first line for headers
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			return err
 		}
-		return nil // EOF/empty file
+		return nil
 	}
 
 	headerLine := scanner.Bytes()
@@ -287,7 +290,6 @@ func StreamCSVToChannel(ctx context.Context, stream io.Reader, out chan<- []mode
 		headerMap.ibytIndex != -1
 
 	if !hasAnyMatched {
-		// Use default nfdump CSV column mapping
 		headerMap = CSVHeaderMap{
 			tsIndex:   0,
 			teIndex:   1,
@@ -301,7 +303,6 @@ func StreamCSVToChannel(ctx context.Context, stream io.Reader, out chan<- []mode
 			ibytIndex: 12,
 		}
 		headerMap.InitColMap()
-		// Treat the first line (read as header) as the first data line instead
 		firstLine = make([]byte, len(headerLine))
 		copy(firstLine, headerLine)
 	}
@@ -329,24 +330,7 @@ func StreamCSVToChannel(ctx context.Context, stream io.Reader, out chan<- []mode
 	expectedSeq := 0
 	pendingResults := make(map[int]workerResult)
 
-	checkCancel := func() bool {
-		select {
-		case <-ctx.Done():
-			hasError.Store(true)
-			if firstErr == nil {
-				firstErr = ctx.Err()
-			}
-			return true
-		default:
-			return false
-		}
-	}
-
 	for res := range resultsChan {
-		if checkCancel() {
-			break
-		}
-
 		if res.batch != nil {
 			pendingResults[res.batch.Sequence] = res
 		}
@@ -366,17 +350,12 @@ func StreamCSVToChannel(ctx context.Context, stream io.Reader, out chan<- []mode
 				if OnRecordsDecoded != nil {
 					OnRecordsDecoded(int64(len(*nextRes.records)))
 				}
-				select {
-				case <-ctx.Done():
-					hasError.Store(true)
-					if firstErr == nil {
-						firstErr = ctx.Err()
-					}
-					recordsPtr := nextRes.records
-					*recordsPtr = (*recordsPtr)[:0]
-					recordsPool.Put(recordsPtr)
-				case out <- *nextRes.records:
+				if processFn != nil {
+					processFn(*nextRes.records)
 				}
+				recordsPtr := nextRes.records
+				*recordsPtr = (*recordsPtr)[:0]
+				recordsPool.Put(recordsPtr)
 			}
 
 			if nextRes.batch != nil {
@@ -386,7 +365,6 @@ func StreamCSVToChannel(ctx context.Context, stream io.Reader, out chan<- []mode
 		}
 	}
 
-	// Drain pendingResults in order at shutdown, treating missing sequence numbers as empty batches
 	for len(pendingResults) > 0 {
 		nextRes, found := pendingResults[expectedSeq]
 		if found {
@@ -400,17 +378,12 @@ func StreamCSVToChannel(ctx context.Context, stream io.Reader, out chan<- []mode
 				if OnRecordsDecoded != nil {
 					OnRecordsDecoded(int64(len(*nextRes.records)))
 				}
-				select {
-				case <-ctx.Done():
-					hasError.Store(true)
-					if firstErr == nil {
-						firstErr = ctx.Err()
-					}
-					recordsPtr := nextRes.records
-					*recordsPtr = (*recordsPtr)[:0]
-					recordsPool.Put(recordsPtr)
-				case out <- *nextRes.records:
+				if processFn != nil {
+					processFn(*nextRes.records)
 				}
+				recordsPtr := nextRes.records
+				*recordsPtr = (*recordsPtr)[:0]
+				recordsPool.Put(recordsPtr)
 			}
 
 			if nextRes.batch != nil {
@@ -441,12 +414,10 @@ func CSVProducer(scanner *bufio.Scanner, firstLine []byte, chunksChan chan<- *Ba
 	var seq int
 
 	appendLine := func(raw []byte) {
-		// Skip empty entries
 		if len(raw) == 0 {
 			return
 		}
 
-		// Skip nfdump summary footer lines and short/invalid lines
 		if bytes.HasPrefix(raw, []byte("Summary")) ||
 			bytes.HasPrefix(raw, []byte("Time window")) ||
 			bytes.HasPrefix(raw, []byte("Total bytes")) ||
@@ -458,7 +429,6 @@ func CSVProducer(scanner *bufio.Scanner, firstLine []byte, chunksChan chan<- *Ba
 			return
 		}
 
-		// Arena growth boundary check
 		if batch.Offset+len(raw) > len(batch.Arena) {
 			newCap := len(batch.Arena) * 2
 			if newCap < len(raw) {
@@ -527,7 +497,7 @@ func CSVWorker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sy
 			}
 
 			var record models.NetflowRecord
-			if err := parseCSVLine(rawBytes, &record, headerMap); err != nil {
+			if err := parseCSVLineUnsafe(rawBytes, &record, headerMap); err != nil {
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -545,4 +515,40 @@ func CSVWorker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sy
 			resultsChan <- workerResult{records: nil, err: nil, batch: batch}
 		}
 	}
+}
+
+// RegisterProgressCallback is a backward-compatible placeholder for progress registration.
+func RegisterProgressCallback(cb func(int64)) {}
+
+// StreamCSVToChannel is a backward-compatible wrapper that parses and streams NetflowRecords to a channel safely.
+func StreamCSVToChannel(ctx context.Context, stream io.Reader, out chan<- []models.NetflowRecord) error {
+	return StreamCSV(stream, func(records []models.NetflowRecord) {
+		out <- cloneRecords(records)
+	})
+}
+
+// ParallelStreamCSVToChannel is a backward-compatible wrapper that concurrently streams NetflowRecords to a channel safely.
+func ParallelStreamCSVToChannel(path string, headerLine []byte, out chan<- []models.NetflowRecord) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	return StreamCSV(file, func(records []models.NetflowRecord) {
+		out <- cloneRecords(records)
+	})
+}
+
+// ParallelStreamCSV is a backward-compatible wrapper that concurrent scans CSV.
+func ParallelStreamCSV(path string, headerLine []byte, processFn func(workerID int, records []models.NetflowRecord)) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	return StreamCSV(file, func(records []models.NetflowRecord) {
+		processFn(0, cloneRecords(records))
+	})
 }

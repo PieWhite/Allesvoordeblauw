@@ -115,7 +115,7 @@ func (m *FastXGBoost) PredictProba(features []float32) float32 {
 			}
 			
 			val := features[node.SplitFeature]
-			if math.IsNaN(float64(val)) {
+			if val != val {
 				curr = node.Missing
 			} else if val < node.SplitCondition {
 				curr = node.Yes

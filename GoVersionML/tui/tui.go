@@ -439,7 +439,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					pipeline.OnProgressEvent = func(event pipeline.ProgressEvent) {
 						switch event.Stage {
 						case pipeline.ProgressBytesRead:
-							atomic.AddInt64(sharedBytesRead, event.Delta)
+							// Skip to avoid double counting since pipeline.OnProgress already handles this
 						case pipeline.ProgressRecordsDecoded:
 							atomic.AddInt64(sharedRecordsDecoded, event.Delta)
 						case pipeline.ProgressRecordsAggregated:

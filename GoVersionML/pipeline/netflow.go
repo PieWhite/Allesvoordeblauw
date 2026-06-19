@@ -4,14 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 	"sync/atomic"
 
 	"goversion/config"
 	"goversion/engine"
 	"goversion/models"
-	"goversion/scanner"
 )
 
 type RecordProcessor interface {
@@ -50,37 +47,7 @@ func ProcessFile(inputPath string, processor RecordProcessor, stream StreamFn) (
 		return 0, fmt.Errorf("stream function cannot be nil")
 	}
 
-	detector, isDetector := processor.(*engine.Detector)
-	isCSV := strings.ToLower(filepath.Ext(inputPath)) == ".csv"
 
-	if isCSV && isDetector {
-		info, err := os.Stat(inputPath)
-		if err == nil && info.Mode().IsRegular() {
-			detector.SetWindowFlushMode(engine.WindowFlushStrictEOF)
-
-			if OnProgress != nil {
-				scanner.RegisterProgressCallback(OnProgress)
-				defer scanner.RegisterProgressCallback(nil)
-			}
-
-			recordChan := make(chan []models.NetflowRecord, 100)
-			var scanErr error
-			go func() {
-				scanErr = scanner.ParallelStreamCSVToChannel(inputPath, nil, recordChan)
-				close(recordChan)
-			}()
-
-			for records := range recordChan {
-				detector.ProcessRecords(records)
-			}
-
-			if scanErr != nil {
-				return 0, fmt.Errorf("failed parallel streaming of CSV: %w", scanErr)
-			}
-
-			return detector.TotalCount(), nil
-		}
-	}
 
 	file, err := os.Open(inputPath)
 	if err != nil {

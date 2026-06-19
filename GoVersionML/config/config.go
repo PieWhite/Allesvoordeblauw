@@ -28,6 +28,7 @@ func (c *AppConfig) ParseArgs(args []string) error {
 	fs.StringVar(&c.CpuProfile, "cpuprofile", "", "Write CPU profile to file")
 	fs.StringVar(&c.MemProfile, "memprofile", "", "Write memory profile to file")
 	fs.StringVar(&c.Subnet, "subnet", "", "IP subnet to filter on (e.g. 192.251.0.0/16 or 196.251.x.x)")
+	fs.BoolVar(&c.SkipConfirm, "y", false, "Skip confirmation prompt")
 
 	if err := fs.Parse(args); err != nil {
 		return err

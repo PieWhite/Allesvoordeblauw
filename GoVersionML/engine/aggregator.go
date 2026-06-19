@@ -19,7 +19,7 @@ type WindowKey struct {
 
 type Shard struct {
 	sync.RWMutex
-	IPs map[WindowKey]*IPStats
+	IPs map[uint64]*IPStats
 }
 
 type Aggregator struct {
@@ -31,7 +31,7 @@ func NewAggregator() *Aggregator {
 	a := &Aggregator{}
 	for i := 0; i < numShards; i++ {
 		a.shards[i] = &Shard{
-			IPs: make(map[WindowKey]*IPStats),
+			IPs: make(map[uint64]*IPStats),
 		}
 	}
 	return a
@@ -52,7 +52,9 @@ func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
 		minute := int(s[14]-'0')*10 + int(s[15]-'0')
 		second := int(s[17]-'0')*10 + int(s[18]-'0')
 		msec := int(s[20]-'0')*100 + int(s[21]-'0')*10 + int(s[22]-'0')
-		return time.Date(year, time.Month(month), day, hour, minute, second, msec*1000000, time.UTC), true
+		
+		sec := fastUnixTime(year, month, day, hour, minute, second)
+		return time.Unix(sec, int64(msec)*1000000).UTC(), true
 	}
 
 	if len(s) >= 19 && s[4] == '-' && s[10] == ' ' {
@@ -66,7 +68,9 @@ func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
 		if len(s) >= 23 && s[19] == '.' {
 			msec = int(s[20]-'0')*100 + int(s[21]-'0')*10 + int(s[22]-'0')
 		}
-		return time.Date(year, time.Month(month), day, hour, minute, second, msec*1000000, time.UTC), true
+		
+		sec := fastUnixTime(year, month, day, hour, minute, second)
+		return time.Unix(sec, int64(msec)*1000000).UTC(), true
 	}
 
 	t, err := time.Parse("2006-01-02T15:04:05.000", s)
@@ -90,11 +94,9 @@ func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
 	return t, false
 }
 
-func getWindowKey(ip uint32, t time.Time) WindowKey {
-	return WindowKey{
-		IP:     ip,
-		Window: t.Truncate(5 * time.Minute).Unix(),
-	}
+func packKey(ip uint32, t time.Time) uint64 {
+	win := t.Unix() / 300 * 300
+	return (uint64(ip) << 32) | uint64(uint32(win))
 }
 
 func (a *Aggregator) Update(record models.NetflowRecord) {
@@ -106,7 +108,7 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 	if record.Src4Addr != "" {
 		srcIP, srcOk := ParseIPv4(record.Src4Addr)
 		if srcOk {
-			key := getWindowKey(srcIP, first)
+			key := packKey(srcIP, first)
 			shardIdx := a.getShardIndex(srcIP)
 			shard := a.shards[shardIdx]
 
@@ -128,7 +130,7 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 	if record.Dst4Addr != "" {
 		dstIP, dstOk := ParseIPv4(record.Dst4Addr)
 		if dstOk {
-			key := getWindowKey(dstIP, first)
+			key := packKey(dstIP, first)
 			shardIdx := a.getShardIndex(dstIP)
 			shard := a.shards[shardIdx]
 
@@ -164,7 +166,6 @@ func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRe
 
 	stats.AddUniqueDstIP(dstIP)
 	stats.AddUniqueDstPort(record.DstPort)
-	stats.AddOutboundDstPort(record.DstPort)
 
 	stats.TotalBytes += float64(record.InBytes)
 	stats.TotalPackets += float64(record.InPackets)
@@ -216,7 +217,8 @@ func (a *Aggregator) ExtractAndFlushBefore(window int64) []*IPStats {
 		shard := a.shards[i]
 		shard.Lock()
 		for key, stats := range shard.IPs {
-			if key.Window < window {
+			win := int64(uint32(key))
+			if win < window {
 				flushed = append(flushed, stats)
 				delete(shard.IPs, key)
 			}

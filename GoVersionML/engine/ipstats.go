@@ -31,11 +31,6 @@ type IPStats struct {
 	UniqueDstPorts    []int
 	UniqueDstPortsMap map[int]struct{}
 
-	HasFirstOutbound    bool
-	FirstOutboundPort   int
-	OutboundDstPorts    []int
-	OutboundDstPortsMap map[int]struct{}
-
 	HasFirstInbound    bool
 	FirstInboundPort   int
 	InboundDstPorts    []int
@@ -98,15 +93,6 @@ func (s *IPStats) Reset() {
 		s.UniqueDstPorts = s.UniqueDstPorts[:0]
 	}
 	s.UniqueDstPortsMap = nil
-
-	s.HasFirstOutbound = false
-	s.FirstOutboundPort = 0
-	if cap(s.OutboundDstPorts) > 1024 {
-		s.OutboundDstPorts = nil
-	} else {
-		s.OutboundDstPorts = s.OutboundDstPorts[:0]
-	}
-	s.OutboundDstPortsMap = nil
 
 	s.HasFirstInbound = false
 	s.FirstInboundPort = 0
@@ -218,38 +204,6 @@ func (s *IPStats) NumUniqueDstPorts() int {
 		return 0
 	}
 	return 1 + len(s.UniqueDstPorts)
-}
-
-func (s *IPStats) AddOutboundDstPort(val int) {
-	if !s.HasFirstOutbound {
-		s.FirstOutboundPort = val
-		s.HasFirstOutbound = true
-		return
-	}
-	if s.FirstOutboundPort == val {
-		return
-	}
-	if s.OutboundDstPortsMap != nil {
-		if _, exists := s.OutboundDstPortsMap[val]; exists {
-			return
-		}
-		s.OutboundDstPortsMap[val] = struct{}{}
-		s.OutboundDstPorts = append(s.OutboundDstPorts, val)
-		return
-	}
-	for _, v := range s.OutboundDstPorts {
-		if v == val {
-			return
-		}
-	}
-	if len(s.OutboundDstPorts) >= 16 {
-		s.OutboundDstPortsMap = make(map[int]struct{})
-		for _, v := range s.OutboundDstPorts {
-			s.OutboundDstPortsMap[v] = struct{}{}
-		}
-		s.OutboundDstPortsMap[val] = struct{}{}
-	}
-	s.OutboundDstPorts = append(s.OutboundDstPorts, val)
 }
 
 func (s *IPStats) AddInboundDstPort(val int) {
@@ -437,11 +391,11 @@ func (s *IPStats) calculatePortSymmetry() float64 {
 		return false
 	}
 
-	if s.HasFirstOutbound && hasInbound(s.FirstOutboundPort) {
+	if s.HasFirstDstPort && hasInbound(s.FirstDstPort) {
 		symmetry++
 	}
 
-	for _, p := range s.OutboundDstPorts {
+	for _, p := range s.UniqueDstPorts {
 		if hasInbound(p) {
 			symmetry++
 		}
@@ -487,14 +441,6 @@ func (s *IPStats) Merge(other *IPStats) {
 	}
 	for _, p := range other.UniqueDstPorts {
 		s.AddUniqueDstPort(p)
-	}
-
-	// Merge outbound dst ports
-	if other.HasFirstOutbound {
-		s.AddOutboundDstPort(other.FirstOutboundPort)
-	}
-	for _, p := range other.OutboundDstPorts {
-		s.AddOutboundDstPort(p)
 	}
 
 	// Merge inbound dst ports

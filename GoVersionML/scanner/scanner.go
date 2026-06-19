@@ -84,26 +84,6 @@ func StreamNDJSON(stream io.Reader, processFn func([]models.NetflowRecord)) erro
 }
 
 func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isNDJSON bool) error {
-	ch := make(chan []models.NetflowRecord, 10)
-	var streamErr error
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		streamErr = StreamNetflowToChannel(context.Background(), stream, ch, isNDJSON)
-		close(ch)
-	}()
-
-	for records := range ch {
-		if processFn != nil {
-			processFn(records)
-		}
-	}
-	wg.Wait()
-	return streamErr
-}
-
-func StreamNetflowToChannel(ctx context.Context, stream io.Reader, out chan<- []models.NetflowRecord, isNDJSON bool) error {
 	numWorkers := utils.OptimalWorkerCount()
 
 	chunksChan := make(chan *Batch, numWorkers*2)
@@ -133,24 +113,7 @@ func StreamNetflowToChannel(ctx context.Context, stream io.Reader, out chan<- []
 	expectedSeq := 0
 	pendingResults := make(map[int]workerResult)
 
-	checkCancel := func() bool {
-		select {
-		case <-ctx.Done():
-			hasError.Store(true)
-			if firstErr == nil {
-				firstErr = ctx.Err()
-			}
-			return true
-		default:
-			return false
-		}
-	}
-
 	for res := range resultsChan {
-		if checkCancel() {
-			break
-		}
-
 		if res.batch != nil {
 			pendingResults[res.batch.Sequence] = res
 		}
@@ -170,17 +133,12 @@ func StreamNetflowToChannel(ctx context.Context, stream io.Reader, out chan<- []
 				if OnRecordsDecoded != nil {
 					OnRecordsDecoded(int64(len(*nextRes.records)))
 				}
-				select {
-				case <-ctx.Done():
-					hasError.Store(true)
-					if firstErr == nil {
-						firstErr = ctx.Err()
-					}
-					recordsPtr := nextRes.records
-					*recordsPtr = (*recordsPtr)[:0]
-					recordsPool.Put(recordsPtr)
-				case out <- *nextRes.records:
+				if processFn != nil {
+					processFn(*nextRes.records)
 				}
+				recordsPtr := nextRes.records
+				*recordsPtr = (*recordsPtr)[:0]
+				recordsPool.Put(recordsPtr)
 			}
 
 			if nextRes.batch != nil {
@@ -203,17 +161,12 @@ func StreamNetflowToChannel(ctx context.Context, stream io.Reader, out chan<- []
 				if OnRecordsDecoded != nil {
 					OnRecordsDecoded(int64(len(*nextRes.records)))
 				}
-				select {
-				case <-ctx.Done():
-					hasError.Store(true)
-					if firstErr == nil {
-						firstErr = ctx.Err()
-					}
-					recordsPtr := nextRes.records
-					*recordsPtr = (*recordsPtr)[:0]
-					recordsPool.Put(recordsPtr)
-				case out <- *nextRes.records:
+				if processFn != nil {
+					processFn(*nextRes.records)
 				}
+				recordsPtr := nextRes.records
+				*recordsPtr = (*recordsPtr)[:0]
+				recordsPool.Put(recordsPtr)
 			}
 
 			if nextRes.batch != nil {
@@ -228,6 +181,16 @@ func StreamNetflowToChannel(ctx context.Context, stream io.Reader, out chan<- []
 	}
 
 	return firstErr
+}
+
+// StreamNetflowToChannel is a backward-compatible wrapper that parses and streams NetflowRecords to a channel safely.
+func StreamNetflowToChannel(ctx context.Context, stream io.Reader, out chan<- []models.NetflowRecord, isNDJSON bool) error {
+	return StreamNetflow(stream, func(records []models.NetflowRecord) {
+		select {
+		case <-ctx.Done():
+		case out <- cloneRecords(records):
+		}
+	}, isNDJSON)
 }
 
 func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, splitFn bufio.SplitFunc, hasError *atomic.Bool) {

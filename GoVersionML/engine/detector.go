@@ -60,7 +60,7 @@ func NewDetector(modelPath string) (*Detector, error) {
 
 func (d *Detector) startWorkers() {
 	d.completedWindows = make(chan []*IPStats, 100)
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 8; i++ {
 		d.evalWg.Add(1)
 		go func() {
 			defer d.evalWg.Done()
@@ -193,13 +193,20 @@ func (d *Detector) evaluateBatch(statsBatch []*IPStats) {
 	localSeen := NewHyperLogLog(14)
 
 	for _, stats := range statsBatch {
+		if stats.FlowCount <= 1 {
+			if localSeen != nil {
+				localSeen.Add(stats.IP)
+			}
+			continue
+		}
+
 		// Pre-fill features with NaN as required by FastXGBoost for missing values
 		for i := range features {
 			features[i] = float32(math.NaN())
 		}
 
 		stats.FillMLVector(f64)
-		
+
 		// Map non-zero values to our features array
 		for i, val := range f64 {
 			if val != 0 {
