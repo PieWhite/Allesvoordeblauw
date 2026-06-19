@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"goversion/engine"
 	"goversion/models"
 	"goversion/scanner"
+	"goversion/utils"
 )
 
 // classifiedFiles groups discovered files by their supported type.
@@ -190,16 +190,17 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 	}
 	close(jobs)
 
-	numWorkers := runtime.NumCPU()
-	if numWorkers > 4 {
-		numWorkers = 4
-	}
-	if numWorkers < 1 {
-		numWorkers = 1
-	}
+	plan := utils.GetConcurrencyPlan()
+	numWorkers := plan.ConcurrentFiles
 	if totalFiles < numWorkers {
 		numWorkers = totalFiles
 	}
+
+	// Override parsing workers per file for the scanners during this batch process
+	utils.WorkerCountOverride = plan.WorkersPerFile
+	defer func() {
+		utils.WorkerCountOverride = 0
+	}()
 
 	maxConcurrentReaders := numWorkers
 	maxConcurrentFinalizers := 2

@@ -67,6 +67,9 @@ func TestModel_View(t *testing.T) {
 	if !strings.Contains(view, "Folder detection") {
 		t.Errorf("expected view to contain Folder detection, got: %s", view)
 	}
+	if !strings.Contains(view, "Configuration") {
+		t.Errorf("expected view to contain Configuration, got: %s", view)
+	}
 
 	m.quitting = true
 	quitView := m.View()
@@ -89,9 +92,15 @@ func TestModel_Update_Navigation(t *testing.T) {
 			expectedPos: 1,
 		},
 		{
-			name:        "navigate down from 1 (wrap around)",
+			name:        "navigate down from 1",
 			key:         "down",
 			startPos:    1,
+			expectedPos: 2,
+		},
+		{
+			name:        "navigate down from 2 (wrap around)",
+			key:         "down",
+			startPos:    2,
 			expectedPos: 0,
 		},
 		{
@@ -104,7 +113,7 @@ func TestModel_Update_Navigation(t *testing.T) {
 			name:        "navigate up from 0 (wrap around)",
 			key:         "up",
 			startPos:    0,
-			expectedPos: 1,
+			expectedPos: 2,
 		},
 		{
 			name:        "navigate down with 'j'",

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -17,6 +18,7 @@ import (
 	"goversion/pipeline"
 	"goversion/reporter"
 	"goversion/scanner"
+	"goversion/utils"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -31,6 +33,7 @@ const (
 	stateScanning
 	stateResults
 	stateFullLog
+	stateConfiguration
 )
 
 // FileEntry represents a file or directory item.
@@ -109,6 +112,11 @@ type Model struct {
 	// Terminal window dimensions
 	width  int
 	height int
+
+	// Configuration editing fields
+	cfgConcurrentFiles int
+	cfgWorkersPerFile  int
+	cfgCursor          int
 }
 
 // NewModel initializes the TUI model.
@@ -320,6 +328,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateMenu
 				return m, nil
 			}
+			if m.state == stateConfiguration {
+				m.state = stateMenu
+				m.cursor = 0
+				return m, nil
+			}
 			m.quitting = true
 			return m, tea.Quit
 		}
@@ -330,19 +343,81 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor > 0 {
 					m.cursor--
 				} else {
-					m.cursor = 1
+					m.cursor = 2
 				}
 			case "down", "j":
-				if m.cursor < 1 {
+				if m.cursor < 2 {
 					m.cursor++
 				} else {
 					m.cursor = 0
 				}
 			case "enter", " ":
-				m.selectedOption = m.cursor
-				if err := m.loadDirectory("."); err == nil {
-					m.state = stateFileBrowser
+				if m.cursor == 2 {
+					m.state = stateConfiguration
+					plan := utils.GetConcurrencyPlan()
+					m.cfgConcurrentFiles = plan.ConcurrentFiles
+					m.cfgWorkersPerFile = plan.WorkersPerFile
+					m.cfgCursor = 0
+				} else {
+					m.selectedOption = m.cursor
+					if err := m.loadDirectory("."); err == nil {
+						m.state = stateFileBrowser
+					}
 				}
+			}
+		} else if m.state == stateConfiguration {
+			switch msg.String() {
+			case "up", "k":
+				if m.cfgCursor > 0 {
+					m.cfgCursor--
+				} else {
+					m.cfgCursor = 4
+				}
+			case "down", "j":
+				if m.cfgCursor < 4 {
+					m.cfgCursor++
+				} else {
+					m.cfgCursor = 0
+				}
+			case "left", "h", "-":
+				if m.cfgCursor == 0 {
+					if m.cfgConcurrentFiles > 1 {
+						m.cfgConcurrentFiles--
+					}
+				} else if m.cfgCursor == 1 {
+					if m.cfgWorkersPerFile > 1 {
+						m.cfgWorkersPerFile--
+					}
+				}
+			case "right", "l", "+":
+				if m.cfgCursor == 0 {
+					if m.cfgConcurrentFiles < 64 {
+						m.cfgConcurrentFiles++
+					}
+				} else if m.cfgCursor == 1 {
+					if m.cfgWorkersPerFile < 64 {
+						m.cfgWorkersPerFile++
+					}
+				}
+			case "enter", " ":
+				switch m.cfgCursor {
+				case 2: // Save & Exit
+					utils.ConfiguredConcurrentFiles = m.cfgConcurrentFiles
+					utils.ConfiguredWorkersPerFile = m.cfgWorkersPerFile
+					m.state = stateMenu
+					m.cursor = 0
+				case 3: // Reset to Defaults
+					utils.ConfiguredConcurrentFiles = 0
+					utils.ConfiguredWorkersPerFile = 0
+					m.state = stateMenu
+					m.cursor = 0
+				case 4: // Cancel
+					m.state = stateMenu
+					m.cursor = 0
+				}
+			case "esc":
+				m.state = stateMenu
+				m.cursor = 0
 			}
 		} else if m.state == stateFileBrowser {
 			switch msg.String() {
@@ -606,7 +681,7 @@ func (m Model) View() string {
 		sb.WriteString("  " + textStyle.Render("An XGBoost based tool for botnet detection.") + "\n\n")
 
 		// Render options list
-		options := []string{"Single file detection", "Folder detection"}
+		options := []string{"Single file detection", "Folder detection", "Configuration"}
 		for i, opt := range options {
 			marker := "( )"
 			if m.cursor == i {
@@ -934,6 +1009,57 @@ func (m Model) View() string {
 
 		// Standard navigation footer
 		sb.WriteString("  " + hintStyle.Render("Use ↑/↓ or j/k to scroll • Space/PageDown to scroll faster • Esc to return to summary") + "\n\n")
+	} else if m.state == stateConfiguration {
+		sb.WriteString("  " + titleStyle.Render("Pencilgon Concurrency Configuration") + "\n\n")
+
+		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true).Italic(true)
+		sb.WriteString("  ⚠️  " + warningStyle.Render("(IT'S RECOMMENDED TO KEEP THE DEFAULT SETTINGS, FOR SOME SYSTEMS LOWERING THE VALUES CAN IMPROVE PERFORMANCE)") + "\n\n")
+
+		cores := runtime.NumCPU()
+		recPlan := utils.GetRecommendedPlan()
+
+		infoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8BE9FD"))
+		sb.WriteString("  " + infoStyle.Render("Detected Hardware Profile:") + "\n")
+		sb.WriteString(textStyle.Render(fmt.Sprintf("    • Logical CPU Cores:        %d", cores)) + "\n")
+		sb.WriteString(textStyle.Render(fmt.Sprintf("    • Recommended Files:        %d", recPlan.ConcurrentFiles)) + "\n")
+		sb.WriteString(textStyle.Render(fmt.Sprintf("    • Recommended Workers/File: %d", recPlan.WorkersPerFile)) + "\n\n")
+
+		sb.WriteString("  " + infoStyle.Render("Adjust Concurrency Parameters:") + "\n")
+
+		selectedLineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6")).Bold(true)
+		unselectedLineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F8F8F2"))
+
+		renderRow := func(index int, label string) string {
+			marker := "   "
+			if m.cfgCursor == index {
+				marker = " > "
+				return selectedLineStyle.Render(marker + label)
+			}
+			return unselectedLineStyle.Render(marker + label)
+		}
+
+		// Row 0: Concurrent Files
+		filesVal := fmt.Sprintf("◄ %d ►", m.cfgConcurrentFiles)
+		if m.cfgConcurrentFiles <= 1 {
+			filesVal = fmt.Sprintf("  %d ►", m.cfgConcurrentFiles)
+		}
+		sb.WriteString(renderRow(0, fmt.Sprintf("Concurrent Files (Directory Level):  %s", filesVal)) + "\n")
+
+		// Row 1: Workers per File
+		workersVal := fmt.Sprintf("◄ %d ►", m.cfgWorkersPerFile)
+		if m.cfgWorkersPerFile <= 1 {
+			workersVal = fmt.Sprintf("  %d ►", m.cfgWorkersPerFile)
+		}
+		sb.WriteString(renderRow(1, fmt.Sprintf("Workers Per File (Parser Level):     %s", workersVal)) + "\n\n")
+
+		// Row 2: Save
+		sb.WriteString(renderRow(2, "[ Save & Apply Changes ]") + "\n")
+		// Row 3: Reset
+		sb.WriteString(renderRow(3, "[ Reset to Hardware Defaults ]") + "\n")
+		// Row 4: Cancel
+		sb.WriteString(renderRow(4, "[ Cancel & Go Back ]") + "\n\n")
+
+		sb.WriteString("  " + hintStyle.Render("Use ↑/↓ or j/k to navigate • ←/→ or h/l to adjust values • Enter to select • Esc to back") + "\n\n")
 	}
 
 	// Render within an elegant border
