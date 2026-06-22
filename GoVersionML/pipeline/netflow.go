@@ -1,9 +1,12 @@
+/*
+Package pipeline handles streaming, parsing, and execution of netflow files (CSV/JSON/NDJSON)
+through the botnet machine learning inference engine.
+*/
 package pipeline
 
 import (
 	"fmt"
 	"io"
-	"os"
 	"sync/atomic"
 
 	"goversion/config"
@@ -47,23 +50,11 @@ func ProcessFile(inputPath string, processor RecordProcessor, stream StreamFn) (
 		return 0, fmt.Errorf("stream function cannot be nil")
 	}
 
-
-
-	file, err := os.Open(inputPath)
+	file, reader, err := openFileWithProgress(inputPath)
 	if err != nil {
-		return 0, fmt.Errorf("failed to open input file: %w", err)
+		return 0, err
 	}
 	defer file.Close()
-
-	var reader io.Reader = file
-	progressCallback := OnProgress
-	if progressCallback != nil {
-		reader = &ProgressReader{
-			r:          file,
-			OnProgress: progressCallback,
-			Path:       inputPath,
-		}
-	}
 
 	var fileCount atomic.Int64
 	err = stream(reader, func(records []models.NetflowRecord) {

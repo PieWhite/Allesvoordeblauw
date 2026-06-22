@@ -1,6 +1,14 @@
+/*
+Package pipeline defines the data processing pipelines, concurrency structures,
+and progress monitoring types for botnet detection scanning.
+*/
 package pipeline
 
-import "io"
+import (
+	"fmt"
+	"io"
+	"os"
+)
 
 type ProgressStage string
 
@@ -41,4 +49,20 @@ func (pr *ProgressReader) Read(p []byte) (n int, err error) {
 		}
 	}
 	return n, err
+}
+
+func openFileWithProgress(path string) (*os.File, io.Reader, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open input file: %w", err)
+	}
+	var reader io.Reader = file
+	if OnProgress != nil {
+		reader = &ProgressReader{
+			r:          file,
+			OnProgress: OnProgress,
+			Path:       path,
+		}
+	}
+	return file, reader, nil
 }

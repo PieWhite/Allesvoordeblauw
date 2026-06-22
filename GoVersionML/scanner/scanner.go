@@ -1,3 +1,5 @@
+// Package scanner provides high-performance, concurrent stream-processing parsers
+// for Netflow logs in JSON, NDJSON, CSV, and PCAP formats.
 package scanner
 
 import (
@@ -44,7 +46,6 @@ func splitJSONObjects(data []byte, atEOF bool) (advance int, token []byte, err e
 		return 0, nil, nil
 	}
 
-	// Find the start of the next JSON object
 	start := bytes.IndexByte(data, '{')
 	if start == -1 {
 		if atEOF {
@@ -53,7 +54,6 @@ func splitJSONObjects(data []byte, atEOF bool) (advance int, token []byte, err e
 		return 0, nil, nil
 	}
 
-	// Find the matching closing brace
 	end := bytes.IndexByte(data[start:], '}')
 	if end == -1 {
 		if atEOF {
@@ -218,12 +218,10 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, 
 
 		raw := scanner.Bytes()
 
-		// Skip empty entries
 		if len(raw) == 0 {
 			continue
 		}
 
-		// If the current arena is too small to fit the new line, allocate a new one.
 		if batch.Offset+len(raw) > len(batch.Arena) {
 			newCap := len(batch.Arena) * 2
 			if newCap < len(raw) {
@@ -233,7 +231,6 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, 
 			batch.Offset = 0
 		}
 
-		// Copy the dynamically read bytes into our pre-allocated Arena
 		n := copy(batch.Arena[batch.Offset:], raw)
 		batch.Lines = append(batch.Lines, batch.Arena[batch.Offset:batch.Offset+n])
 		batch.Offset += n
@@ -275,7 +272,6 @@ func Worker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sync.
 				break
 			}
 
-			// Trim potential trailing comma suffixes or spaces (common in array segments or lines)
 			rawBytes = bytes.TrimSpace(rawBytes)
 			rawBytes = bytes.TrimSuffix(rawBytes, []byte{','})
 			rawBytes = bytes.TrimSpace(rawBytes)
@@ -306,3 +302,4 @@ func Worker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sync.
 		}
 	}
 }
+

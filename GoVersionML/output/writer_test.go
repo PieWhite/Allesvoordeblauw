@@ -1,3 +1,5 @@
+// Package output contains unit tests for the output package, ensuring correct behavior
+// of the writer setup for console and file targets under normal and failure conditions.
 package output
 
 import (
@@ -7,57 +9,82 @@ import (
 	"testing"
 )
 
+// TestSetup validates output destination configuration for console, file-bound,
+// and invalid outputs.
 func TestSetup(t *testing.T) {
-	t.Run("Console only (no output file)", func(t *testing.T) {
-		// When outputFile is empty
-		writer, cleanup, err := Setup("")
+	tests := []struct {
+		name        string
+		outputFile  func(t *testing.T) string
+		wantWrite   bool
+		wantContent string
+		wantErr     bool
+	}{
+		{
+			name: "Console only (no output file)",
+			outputFile: func(t *testing.T) string {
+				return ""
+			},
+			wantWrite: false,
+			wantErr:   false,
+		},
+		{
+			name: "Console and valid file",
+			outputFile: func(t *testing.T) string {
+				return filepath.Join(t.TempDir(), "test_output.txt")
+			},
+			wantWrite:   true,
+			wantContent: "hello pencilgon",
+			wantErr:     false,
+		},
+		{
+			name: "Invalid file path",
+			outputFile: func(t *testing.T) string {
+				return "/non/existent/directory/path/to/file.txt"
+			},
+			wantWrite: false,
+			wantErr:   true,
+		},
+	}
 
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
-		if writer == nil {
-			t.Error("Expected a writer, got nil")
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := tt.outputFile(t)
+			w, cleanup, err := Setup(path)
 
-		// Cleanup should not crash
-		cleanup()
-	})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Setup(%q) unexpected error status: got error = %v, wantErr = %v", path, err, tt.wantErr)
+			}
 
-	t.Run("Console and File", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		outPath := filepath.Join(tmpDir, "test_output.txt")
+			if tt.wantErr {
+				return
+			}
 
-		writer, cleanup, err := Setup(outPath)
-		if err != nil {
-			t.Fatalf("Failed to setup output: %v", err)
-		}
+			if w == nil {
+				t.Error("Setup() returned a nil writer, expected non-nil")
+			}
 
-		// Test writing
-		message := "hello world"
-		_, err = io.WriteString(writer, message)
-		if err != nil {
-			t.Fatalf("Failed to write to multiwriter: %v", err)
-		}
+			if tt.wantWrite {
+				_, err = io.WriteString(w, tt.wantContent)
+				if err != nil {
+					t.Fatalf("Failed to write to configured writer: %v", err)
+				}
+			}
 
-		// Must call cleanup to close the file handle
-		cleanup()
+			if cleanup == nil {
+				t.Fatal("Setup() returned a nil cleanup function, expected non-nil")
+			}
+			cleanup()
 
-		// Verify the file was actually created and contains the message
-		content, err := os.ReadFile(outPath)
-		if err != nil {
-			t.Fatalf("Could not read back the output file: %v", err)
-		}
-		if string(content) != message {
-			t.Errorf("Expected file content %q, got %q", message, string(content))
-		}
-	})
-
-	t.Run("Invalid File Path", func(t *testing.T) {
-		// Attempting to create a file in a non-existent directory
-		_, _, err := Setup("/non/existent/path/to/file.txt")
-
-		if err == nil {
-			t.Error("Expected error for invalid path, got nil")
-		}
-	})
+			if tt.wantWrite {
+				content, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("Failed to read back output file: %v", err)
+				}
+				if string(content) != tt.wantContent {
+					t.Errorf("File content mismatch: got %q, want %q", string(content), tt.wantContent)
+				}
+			}
+		})
+	}
 }
+

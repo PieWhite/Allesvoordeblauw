@@ -1,9 +1,12 @@
+// Package reporter handles formatting, sorting, and printing of detection results,
+// separating identified botnets from benign background noise.
 package reporter
 
 import (
+	"cmp"
 	"fmt"
 	"io"
-	"sort"
+	"slices"
 	"time"
 
 	"goversion/models"
@@ -19,8 +22,8 @@ func PrintSummary(out io.Writer, results []models.MLResult, totalUniqueIPs int, 
 		}
 	}
 
-	sort.SliceStable(realResults, func(i, j int) bool {
-		return realResults[i].Probability > realResults[j].Probability
+	slices.SortStableFunc(realResults, func(a, b models.MLResult) int {
+		return cmp.Compare(b.Probability, a.Probability)
 	})
 
 	fmt.Fprintf(out, "Execution time: %.4f seconds\n", duration.Seconds())
@@ -50,3 +53,4 @@ func PrintSummary(out io.Writer, results []models.MLResult, totalUniqueIPs int, 
 	fmt.Fprintf(out, "\nDone. Processed %d records.\n", totalRecords)
 	fmt.Fprintf(out, "Identified %d specific Botnet IPs out of %d total communicating IPs.\n", botnetCount, totalUniqueIPs)
 }
+

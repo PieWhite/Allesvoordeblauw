@@ -1,3 +1,8 @@
+/*
+Package pipeline orchestrates concurrent batch scanning of folders containing
+multiple Netflow and PCAP files, managing memory scaling, models caching,
+and IP communication counters.
+*/
 package pipeline
 
 import (
@@ -18,7 +23,6 @@ import (
 	"goversion/utils"
 )
 
-// classifiedFiles groups discovered files by their supported type.
 type classifiedFiles struct {
 	json        []string
 	ndjson      []string
@@ -27,8 +31,6 @@ type classifiedFiles struct {
 	unsupported []string
 }
 
-// RunPipelineForInput is the main entry point. It delegates to single-file
-// or directory processing based on the input path.
 func RunPipelineForInput(cfg *config.AppConfig) ([]models.MLResult, int, int64, error) {
 	info, err := os.Stat(cfg.InputPath)
 	if err != nil {
@@ -42,7 +44,6 @@ func RunPipelineForInput(cfg *config.AppConfig) ([]models.MLResult, int, int64, 
 	return runDirectoryPipeline(cfg)
 }
 
-// routeSingleFile dispatches a single file to the correct scanner based on extension.
 func routeSingleFile(cfg *config.AppConfig) ([]models.MLResult, int, int64, error) {
 	ext := strings.ToLower(filepath.Ext(cfg.InputPath))
 	ctx := context.Background()
@@ -144,11 +145,9 @@ func confirmDirectoryParse(cf classifiedFiles) error {
 }
 
 func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]models.MLResult, int, int64, error) {
-	// Enforce a soft memory limit to prevent Go's GC from allowing linear RAM scaling across concurrent workers.
-	// 2.5GB is plenty for the active windows of concurrent file parsing.
+	// Set memory limit to prevent Go GC from allowing linear RAM scaling across workers
 	debug.SetMemoryLimit(2500 * 1024 * 1024)
 
-	// Pre-load models to fail fast if they are unavailable
 	if len(cf.json) > 0 || len(cf.ndjson) > 0 || len(cf.csv) > 0 {
 		resolved := resolveModelPath(false)
 		_, err := engine.NewDetector(resolved)
@@ -173,7 +172,6 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 
 	var totalRecords atomic.Int64
 
-	// Use a map to merge results on the fly, preventing linear memory scaling of the results array
 	globalResultsMap := make(map[string]models.MLResult)
 	var resultsMutex sync.Mutex
 
@@ -196,7 +194,6 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 		numWorkers = totalFiles
 	}
 
-	// Override parsing workers per file for the scanners during this batch process
 	utils.WorkerCountOverride = plan.WorkersPerFile
 	defer func() {
 		utils.WorkerCountOverride = 0
@@ -312,7 +309,6 @@ func processBatch(cfg *config.AppConfig, cf classifiedFiles, totalFiles int) ([]
 	wg.Wait()
 	resultsWg.Wait()
 
-	// Convert map back to slice
 	var finalResults []models.MLResult
 	for _, r := range globalResultsMap {
 		finalResults = append(finalResults, r)

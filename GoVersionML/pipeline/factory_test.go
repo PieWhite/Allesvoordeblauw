@@ -1,3 +1,7 @@
+/*
+Package pipeline contains unit tests for testing directory scanning,
+mixed input classification, user prompts, and parallel batch orchestrator logic.
+*/
 package pipeline
 
 import (

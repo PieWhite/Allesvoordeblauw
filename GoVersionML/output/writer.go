@@ -1,3 +1,5 @@
+// Package output provides utilities for configuring and managing application output destinations,
+// allowing simultaneous logging to standard output and optional file destinations.
 package output
 
 import (
@@ -6,25 +8,27 @@ import (
 	"os"
 )
 
+// Setup configures the application's output destination.
+// It returns an io.Writer that writes to standard output, and optionally to a file
+// if a non-empty outputFile path is provided. It also returns a cleanup function to close
+// the file when done, and any error encountered during file creation.
 func Setup(outputFile string) (io.Writer, func(), error) {
-	var writers []io.Writer
-	consoleWriter := os.Stdout
-	writers = append(writers, consoleWriter)
-
 	if outputFile == "" {
-		return io.MultiWriter(writers...), func() {}, nil
+		return os.Stdout, func() {}, nil
 	}
 
-	fileWriter, err := os.Create(outputFile)
+	file, err := os.Create(outputFile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create output file: %w", err)
 	}
 
-	writers = append(writers, fileWriter)
+	writer := io.MultiWriter(os.Stdout, file)
 
 	cleanup := func() {
-		fileWriter.Close()
+		_ = file.Close()
 	}
 
-	return io.MultiWriter(writers...), cleanup, nil
+	return writer, cleanup, nil
 }
+
+

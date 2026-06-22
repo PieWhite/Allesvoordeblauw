@@ -1,16 +1,18 @@
+/*
+Package pipeline handles streaming, parsing, and execution of raw PCAP files
+through the botnet machine learning inference engine.
+*/
 package pipeline
 
 import (
 	"fmt"
 	"io"
-	"os"
 
 	"goversion/config"
 	"goversion/engine"
 	"goversion/models"
 )
 
-// PcapRecordProcessor abstracts the engine detector specifically for PCAP records
 type PcapRecordProcessor interface {
 	ProcessPcapRecords([]models.PcapRecord)
 	CalculateResults() ([]models.MLResult, int)
@@ -19,7 +21,6 @@ type PcapRecordProcessor interface {
 
 type PcapStreamFn func(r io.Reader, fn func([]models.PcapRecord)) error
 
-// AnalyzePcapFile is the entry point for PCAP file stream parsing and botnet detection
 func AnalyzePcapFile(cfg *config.AppConfig, modelPath string, stream PcapStreamFn) ([]models.MLResult, int, int64, error) {
 	detector, err := engine.NewPcapDetector(modelPath)
 	if err != nil {
@@ -43,27 +44,16 @@ func AnalyzePcapFile(cfg *config.AppConfig, modelPath string, stream PcapStreamF
 	return results, uniqueIPs, detector.TotalCount(), nil
 }
 
-// ProcessPcapFile opens the raw PCAP file and streams it using the shared ProgressReader
 func ProcessPcapFile(inputPath string, processor PcapRecordProcessor, stream PcapStreamFn) (int64, error) {
 	if stream == nil {
 		return 0, fmt.Errorf("stream function cannot be nil")
 	}
 
-	file, err := os.Open(inputPath)
+	file, reader, err := openFileWithProgress(inputPath)
 	if err != nil {
-		return 0, fmt.Errorf("failed to open input file: %w", err)
+		return 0, err
 	}
 	defer file.Close()
-
-	var reader io.Reader = file
-	progressCallback := OnProgress // Reuses thread-safe progress callback from pipeline/common.go
-	if progressCallback != nil {
-		reader = &ProgressReader{ // Reuses ProgressReader struct from pipeline/pipeline/common.go
-			r:          file,
-			OnProgress: progressCallback,
-			Path:       inputPath,
-		}
-	}
 
 	if err := stream(reader, processor.ProcessPcapRecords); err != nil {
 		return 0, fmt.Errorf("failed to stream pcap data: %w", err)

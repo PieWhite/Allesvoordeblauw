@@ -1,3 +1,7 @@
+/*
+Package pipeline contains unit tests for streaming, parsing, and pipeline orchestration
+for Netflow network log records.
+*/
 package pipeline
 
 import (
@@ -15,7 +19,6 @@ import (
 	"goversion/scanner"
 )
 
-// mockProcessor implements RecordProcessor for testing
 type mockProcessor struct {
 	recordsProcessed []models.NetflowRecord
 	results          []models.MLResult
@@ -210,7 +213,6 @@ func TestAnalyzeFile(t *testing.T) {
 	})
 
 	t.Run("InvalidInputPath", func(t *testing.T) {
-		// Valid model, but invalid input file
 		_, _, _, err := AnalyzeFile(&config.AppConfig{InputPath: "nonexistent_input.json"}, validModel, mockScanner)
 		if err == nil {
 			t.Fatalf("expected error for missing input file, got nil")
@@ -221,24 +223,19 @@ func TestAnalyzeFile(t *testing.T) {
 	})
 
 	t.Run("ValidFileAndModel", func(t *testing.T) {
-		// Create a temporary input file
 		tempFile, err := os.CreateTemp("", "test_input_*.json")
 		if err != nil {
 			t.Fatalf("failed to create temp file: %v", err)
 		}
 		defer os.Remove(tempFile.Name())
 
-		// We can just write an empty JSON array or a small record
 		_, err = tempFile.WriteString(`{"first": "2026-05-02T15:04:05.000", "last": "2026-05-02T15:05:05.000", "src4_addr": "1.2.3.4"}`)
 		if err != nil {
 			t.Fatalf("failed to write to temp file: %v", err)
 		}
 		tempFile.Close()
 
-		// Test success execution
-		// Note: since this does actual ML inference setup, it may return some empty result or an error based on the ML engine if it expects specific format
 		_, _, _, err = AnalyzeFile(&config.AppConfig{InputPath: tempFile.Name()}, validModel, mockScanner)
-
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -291,7 +288,6 @@ func TestProcessFile_ParallelCSV(t *testing.T) {
 		t.Errorf("expected at least 1 unique IP, got %d", uniqueIPs)
 	}
 
-	// Verify we got the result for 1.2.3.4
 	found := false
 	for _, r := range results {
 		if r.IP == "1.2.3.4" {

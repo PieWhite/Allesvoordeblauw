@@ -1,3 +1,7 @@
+/*
+Package main serves as the primary entry point for the Pencilgon botnet detection CLI tool.
+It handles runtime setup, configuration validation, profiling execution, and pipelines processing.
+*/
 package main
 
 import (
@@ -25,6 +29,9 @@ func main() {
 		os.Exit(0)
 	}
 	if err := run(os.Args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			os.Exit(0)
+		}
 		fmt.Fprintf(os.Stderr, "Fatal error: %v\n", err)
 		os.Exit(1)
 	}
@@ -35,15 +42,11 @@ func run(args []string) error {
 
 	appConfig := &config.AppConfig{}
 	if err := appConfig.ParseArgs(args); err != nil {
-		if err == flag.ErrHelp {
-			os.Exit(0)
-		}
 		return err
 	}
 
-	// Start CPU profile if flag is set
-	if appConfig.CpuProfile != "" {
-		f, err := os.Create(appConfig.CpuProfile)
+	if appConfig.CPUProfile != "" {
+		f, err := os.Create(appConfig.CPUProfile)
 		if err != nil {
 			return fmt.Errorf("could not create CPU profile: %w", err)
 		}
@@ -74,14 +77,13 @@ func run(args []string) error {
 		fmt.Printf("Results written to: %s\n", appConfig.OutputFile)
 	}
 
-	// Save memory profile if flag is set
 	if appConfig.MemProfile != "" {
 		f, err := os.Create(appConfig.MemProfile)
 		if err != nil {
 			return fmt.Errorf("could not create memory profile: %w", err)
 		}
 		defer f.Close()
-		runtime.GC() // Get up-to-date statistics
+		runtime.GC()
 		if err := pprof.WriteHeapProfile(f); err != nil {
 			return fmt.Errorf("could not write memory profile: %w", err)
 		}

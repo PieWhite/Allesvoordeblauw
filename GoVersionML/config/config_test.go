@@ -1,3 +1,6 @@
+/*
+Package config contains the unit tests for verifying command-line argument parsing and subnet matching logic.
+*/
 package config
 
 import (
@@ -8,34 +11,40 @@ import (
 
 func TestAppConfig_ParseArgs(t *testing.T) {
 	tests := []struct {
-		name        string
-		args        []string
-		wantNetflow string
-		wantOutput  string
-		wantSubnet  string
-		wantErr     error // We use the specific error type for help checks
-		wantErrStr  string
+		name            string
+		args            []string
+		wantInput       string
+		wantOutput      string
+		wantSubnet      string
+		wantCPUProfile  string
+		wantMemProfile  string
+		wantSkipConfirm bool
+		wantErr         error
+		wantErrStr      string
 	}{
 		{
-			name:        "Valid: all flags and argument",
-			args:        []string{"-o", "results.txt", "data.json"},
-			wantNetflow: "data.json",
-			wantOutput:  "results.txt",
-			wantErr:     nil,
+			name:            "Valid: all flags and argument",
+			args:            []string{"-o", "results.txt", "-cpuprofile", "cpu.prof", "-memprofile", "mem.prof", "-subnet", "192.168.1.0/24", "-y", "data.json"},
+			wantInput:       "data.json",
+			wantOutput:      "results.txt",
+			wantSubnet:      "192.168.1.0/24",
+			wantCPUProfile:  "cpu.prof",
+			wantMemProfile:  "mem.prof",
+			wantSkipConfirm: true,
+			wantErr:         nil,
 		},
 		{
-			name:        "Valid: defaults used",
-			args:        []string{"input.json"},
-			wantNetflow: "input.json",
-			wantOutput:  "",
-			wantErr:     nil,
+			name:      "Valid: defaults used",
+			args:      []string{"input.json"},
+			wantInput: "input.json",
+			wantErr:   nil,
 		},
 		{
-			name:        "Valid: subnet flag",
-			args:        []string{"-subnet", "192.251.x.x", "data.json"},
-			wantNetflow: "data.json",
-			wantSubnet:  "192.251.x.x",
-			wantErr:     nil,
+			name:       "Valid: subnet flag",
+			args:       []string{"-subnet", "192.251.x.x", "data.json"},
+			wantInput:  "data.json",
+			wantSubnet: "192.251.x.x",
+			wantErr:    nil,
 		},
 		{
 			name:       "Error: missing netflow file",
@@ -45,12 +54,7 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 		{
 			name:    "Error: help flag requested",
 			args:    []string{"-h"},
-			wantErr: flag.ErrHelp, // Specific error returned by FlagSet
-		},
-		{
-			name:       "Error: empty arguments",
-			args:       []string{},
-			wantErrStr: "you need to specify an input file",
+			wantErr: flag.ErrHelp,
 		},
 		{
 			name:       "Error: invalid flag provided",
@@ -64,7 +68,6 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 			cfg := &AppConfig{}
 			err := cfg.ParseArgs(tt.args)
 
-			// 1. Handle the specific flag.ErrHelp case
 			if tt.wantErr == flag.ErrHelp {
 				if err != flag.ErrHelp {
 					t.Errorf("Expected flag.ErrHelp, got %v", err)
@@ -72,7 +75,6 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 				return
 			}
 
-			// 2. Handle generic error string checks
 			if tt.wantErrStr != "" {
 				if err == nil {
 					t.Fatalf("Expected error containing %q, got nil", tt.wantErrStr)
@@ -83,19 +85,27 @@ func TestAppConfig_ParseArgs(t *testing.T) {
 				return
 			}
 
-			// 3. Handle success cases
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
 
-			if cfg.InputPath != tt.wantNetflow {
-				t.Errorf("InputPath = %q, want %q", cfg.InputPath, tt.wantNetflow)
+			if cfg.InputPath != tt.wantInput {
+				t.Errorf("InputPath = %q, want %q", cfg.InputPath, tt.wantInput)
 			}
 			if cfg.OutputFile != tt.wantOutput {
 				t.Errorf("OutputFile = %q, want %q", cfg.OutputFile, tt.wantOutput)
 			}
 			if cfg.Subnet != tt.wantSubnet {
 				t.Errorf("Subnet = %q, want %q", cfg.Subnet, tt.wantSubnet)
+			}
+			if cfg.CPUProfile != tt.wantCPUProfile {
+				t.Errorf("CPUProfile = %q, want %q", cfg.CPUProfile, tt.wantCPUProfile)
+			}
+			if cfg.MemProfile != tt.wantMemProfile {
+				t.Errorf("MemProfile = %q, want %q", cfg.MemProfile, tt.wantMemProfile)
+			}
+			if cfg.SkipConfirm != tt.wantSkipConfirm {
+				t.Errorf("SkipConfirm = %t, want %t", cfg.SkipConfirm, tt.wantSkipConfirm)
 			}
 		})
 	}
@@ -160,6 +170,12 @@ func TestMatchSubnet(t *testing.T) {
 			name:      "Mismatch",
 			ip:        "192.168.1.1",
 			subnet:    "10.0.0.x",
+			wantMatch: false,
+		},
+		{
+			name:      "Invalid CIDR fallback - handles invalid formats gracefully",
+			ip:        "192.168.1.1",
+			subnet:    "192.168.1.0/33",
 			wantMatch: false,
 		},
 	}

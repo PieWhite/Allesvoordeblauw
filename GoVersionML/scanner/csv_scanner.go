@@ -1,3 +1,4 @@
+// Package scanner handles raw file stream processing and parsing of netflow CSV records.
 package scanner
 
 import (
@@ -30,19 +31,17 @@ const (
 	colProto
 )
 
-// CSVHeaderMap holds the mapped index of each required column in the nfdump CSV output.
-// Unmapped columns are set to -1.
 type CSVHeaderMap struct {
-	tsIndex   int // first
-	teIndex   int // last
-	saIndex   int // src4_addr
-	daIndex   int // dst4_addr
-	spIndex   int // src_port
-	dpIndex   int // dst_port
-	prIndex   int // proto
-	flgIndex  int // tcp_flags
-	ipktIndex int // in_packets
-	ibytIndex int // in_bytes
+	tsIndex   int
+	teIndex   int
+	saIndex   int
+	daIndex   int
+	spIndex   int
+	dpIndex   int
+	prIndex   int
+	flgIndex  int
+	ipktIndex int
+	ibytIndex int
 
 	colMap []int
 }
@@ -94,7 +93,6 @@ func (m *CSVHeaderMap) InitColMap() {
 	}
 }
 
-// parseCSVHeader dynamically maps CSV header columns to their index positions.
 func parseCSVHeader(header []byte) CSVHeaderMap {
 	m := CSVHeaderMap{
 		tsIndex:   -1,
@@ -144,7 +142,6 @@ func parseCSVHeader(header []byte) CSVHeaderMap {
 	return m
 }
 
-// parseUintBytes parses a uint64 value directly from a byte slice with zero allocations.
 func parseUintBytes(b []byte) (uint64, error) {
 	b = bytes.TrimSpace(b)
 	if len(b) == 0 {
@@ -160,7 +157,6 @@ func parseUintBytes(b []byte) (uint64, error) {
 	return val, nil
 }
 
-// parseProtoBytes maps a protocol byte slice to its numeric identifier without allocations.
 func parseProtoBytes(b []byte) int {
 	b = bytes.TrimSpace(b)
 	if len(b) == 0 {
@@ -250,8 +246,6 @@ func parseCSVLineUnsafe(line []byte, record *models.NetflowRecord, headerMap CSV
 	return nil
 }
 
-// cloneRecords clones the slices and strings of a list of NetflowRecords,
-// making it completely safe to retain after the worker batch is recycled.
 func cloneRecords(records []models.NetflowRecord) []models.NetflowRecord {
 	copied := make([]models.NetflowRecord, len(records))
 	for i, r := range records {
@@ -265,7 +259,6 @@ func cloneRecords(records []models.NetflowRecord) []models.NetflowRecord {
 	return copied
 }
 
-// StreamCSV streams and processes CSV logs concurrently using a Producer-Worker model.
 func StreamCSV(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 	numWorkers := utils.OptimalWorkerCount()
 
@@ -400,7 +393,6 @@ func StreamCSV(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 	return firstErr
 }
 
-// CSVProducer tokenizes the raw file stream line-by-line, utilizing batch memory arenas, and publishes chunks.
 func CSVProducer(scanner *bufio.Scanner, firstLine []byte, chunksChan chan<- *Batch, errChan chan<- error, hasError *atomic.Bool) {
 	defer close(chunksChan)
 
@@ -475,7 +467,6 @@ func CSVProducer(scanner *bufio.Scanner, firstLine []byte, chunksChan chan<- *Ba
 	errChan <- scanner.Err()
 }
 
-// CSVWorker consumes batches, tokenizes columns on byte slices, parses fields, and maps them to pooled record slices.
 func CSVWorker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sync.WaitGroup, hasError *atomic.Bool, headerMap CSVHeaderMap) {
 	defer wg.Done()
 
@@ -517,17 +508,14 @@ func CSVWorker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sy
 	}
 }
 
-// RegisterProgressCallback is a backward-compatible placeholder for progress registration.
 func RegisterProgressCallback(cb func(int64)) {}
 
-// StreamCSVToChannel is a backward-compatible wrapper that parses and streams NetflowRecords to a channel safely.
 func StreamCSVToChannel(ctx context.Context, stream io.Reader, out chan<- []models.NetflowRecord) error {
 	return StreamCSV(stream, func(records []models.NetflowRecord) {
 		out <- cloneRecords(records)
 	})
 }
 
-// ParallelStreamCSVToChannel is a backward-compatible wrapper that concurrently streams NetflowRecords to a channel safely.
 func ParallelStreamCSVToChannel(path string, headerLine []byte, out chan<- []models.NetflowRecord) error {
 	file, err := os.Open(path)
 	if err != nil {
@@ -540,7 +528,6 @@ func ParallelStreamCSVToChannel(path string, headerLine []byte, out chan<- []mod
 	})
 }
 
-// ParallelStreamCSV is a backward-compatible wrapper that concurrent scans CSV.
 func ParallelStreamCSV(path string, headerLine []byte, processFn func(workerID int, records []models.NetflowRecord)) error {
 	file, err := os.Open(path)
 	if err != nil {

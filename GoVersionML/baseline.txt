@@ -2,11 +2,11 @@
 goarch: amd64
 pkg: goversion/main
 cpu: AMD Ryzen 7 7800X3D 8-Core Processor           
-BenchmarkEndToEnd-16    	       2	 619059300 ns/op	137880064 B/op	  985989 allocs/op
-BenchmarkEndToEnd-16    	       2	 597753800 ns/op	140208688 B/op	  985984 allocs/op
-BenchmarkEndToEnd-16    	       2	 577464900 ns/op	139011248 B/op	  985980 allocs/op
-BenchmarkEndToEnd-16    	       2	 578581650 ns/op	139548240 B/op	  985985 allocs/op
-BenchmarkEndToEnd-16    	       2	 568264500 ns/op	139546348 B/op	  985965 allocs/op
-BenchmarkEndToEnd-16    	       2	 575140650 ns/op	116654724 B/op	  985870 allocs/op
+BenchmarkEndToEnd-16    	       7	 156736443 ns/op	15765832 B/op	   63013 allocs/op
+BenchmarkEndToEnd-16    	       7	 151980643 ns/op	14334454 B/op	   56382 allocs/op
+BenchmarkEndToEnd-16    	       7	 147597786 ns/op	14212273 B/op	   55738 allocs/op
+BenchmarkEndToEnd-16    	       7	 155730886 ns/op	14088390 B/op	   53914 allocs/op
+BenchmarkEndToEnd-16    	       8	 148612988 ns/op	13821731 B/op	   53209 allocs/op
+BenchmarkEndToEnd-16    	       8	 146656288 ns/op	14047031 B/op	   53625 allocs/op
 PASS
-ok  	goversion/main	11.055s
+ok  	goversion/main	9.632s

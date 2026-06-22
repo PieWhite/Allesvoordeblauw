@@ -1,3 +1,7 @@
+/*
+Package pipeline orchestrates the processing pipelines for different network data files,
+supporting Netflow (JSON/NDJSON/CSV) and raw PCAP formats.
+*/
 package pipeline
 
 import (
@@ -20,7 +24,6 @@ type FilePipelineResult struct {
 	Err          error
 }
 
-// RunNetflowFilePipeline runs the netflow pipeline for a single file.
 func RunNetflowFilePipeline(ctx context.Context, path string, cfg *config.AppConfig) FilePipelineResult {
 	res := FilePipelineResult{Path: path}
 
@@ -60,7 +63,6 @@ func RunNetflowFilePipeline(ctx context.Context, path string, cfg *config.AppCon
 	return res
 }
 
-// RunPcapFilePipeline runs the PCAP pipeline for a single file.
 func RunPcapFilePipeline(ctx context.Context, path string, cfg *config.AppConfig) FilePipelineResult {
 	res := FilePipelineResult{Path: path}
 
