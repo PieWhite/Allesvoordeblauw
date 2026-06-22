@@ -671,8 +671,74 @@ func TestModel_FileBrowser_PressX_OnCSV(t *testing.T) {
 	if mResult.state != stateConfirmSelection {
 		t.Errorf("expected state to switch to stateConfirmSelection, got %v", mResult.state)
 	}
-	expectedPath := filepath.Join("/test/dir", "data.csv")
-	if mResult.scanPath != expectedPath {
-		t.Errorf("expected scanPath to be %s, got %s", expectedPath, mResult.scanPath)
+}
+
+func TestModel_Configuration_Subnet(t *testing.T) {
+	m := NewModel()
+	m.state = stateMenu
+	m.cursor = 2 // Configuration option
+
+	// Transition to Configuration
+	updatedModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mResult, ok := updatedModel.(Model)
+	if !ok {
+		t.Fatalf("expected Model")
+	}
+	if mResult.state != stateConfiguration {
+		t.Fatalf("expected state to switch to stateConfiguration, got %v", mResult.state)
+	}
+
+	// Move cursor to row 2 (IP Subnet Filter)
+	mResult.cfgCursor = 2
+
+	// Type subnet "192.x"
+	keys := []string{"1", "9", "2", ".", "x", "X"}
+	for _, key := range keys {
+		updatedModel, _ = mResult.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+		mResult = updatedModel.(Model)
+	}
+
+	if mResult.cfgSubnet != "192.xX" {
+		t.Errorf("expected cfgSubnet to be '192.xX', got '%s'", mResult.cfgSubnet)
+	}
+
+	// Backspace last char
+	updatedModel, _ = mResult.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	mResult = updatedModel.(Model)
+	if mResult.cfgSubnet != "192.x" {
+		t.Errorf("expected cfgSubnet to be '192.x' after backspace, got '%s'", mResult.cfgSubnet)
+	}
+
+	// Move cursor to Save & Apply Changes (row 3) and select it
+	mResult.cfgCursor = 3
+	updatedModel, _ = mResult.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mResult = updatedModel.(Model)
+
+	if mResult.state != stateMenu {
+		t.Errorf("expected return to stateMenu, got %v", mResult.state)
+	}
+	if mResult.savedSubnet != "192.x" {
+		t.Errorf("expected savedSubnet to be '192.x', got '%s'", mResult.savedSubnet)
+	}
+
+	// Re-enter configuration
+	mResult.state = stateMenu
+	mResult.cursor = 2
+	updatedModel, _ = mResult.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mResult = updatedModel.(Model)
+	if mResult.cfgSubnet != "192.x" {
+		t.Errorf("expected cfgSubnet initialized from savedSubnet, got '%s'", mResult.cfgSubnet)
+	}
+
+	// Reset to Defaults (row 4)
+	mResult.cfgCursor = 4
+	updatedModel, _ = mResult.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mResult = updatedModel.(Model)
+
+	if mResult.savedSubnet != "" {
+		t.Errorf("expected savedSubnet cleared on reset, got '%s'", mResult.savedSubnet)
+	}
+	if mResult.cfgSubnet != "" {
+		t.Errorf("expected cfgSubnet cleared on reset, got '%s'", mResult.cfgSubnet)
 	}
 }

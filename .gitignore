@@ -57,3 +57,133 @@ GoVersionML/benchmark.ndjson
 GoVersionML/mermaid.md
 GoVersionML/testo.ndjson
 software_design_document.md
+flow_1.json
+GoVersionML/main/cpu.prof
+GoVersionML/main/main.exe
+GoVersionML/main/main.exe - Snelkoppeling.lnk
+GoVersionML/main/mem.prof
+GoVersionML/Mirai-greeth_flood.pcap
+GoVersionML/mirai/Mirai-greip_flood.json
+GoVersionML/mirai/Mirai-greip_flood10.json
+GoVersionML/mirai/Mirai-greip_flood11.json
+GoVersionML/mirai/Mirai-greip_flood12.json
+GoVersionML/mirai/Mirai-greip_flood13.json
+GoVersionML/mirai/Mirai-greip_flood14.json
+GoVersionML/mirai/Mirai-greip_flood15.json
+GoVersionML/mirai/Mirai-greip_flood16.json
+GoVersionML/mirai/Mirai-greip_flood17.json
+GoVersionML/mirai/Mirai-greip_flood18.json
+GoVersionML/mirai/Mirai-greip_flood19.json
+GoVersionML/mirai/Mirai-greip_flood2.json
+GoVersionML/mirai/Mirai-greip_flood20.json
+GoVersionML/mirai/Mirai-greip_flood21.json
+GoVersionML/mirai/Mirai-greip_flood3.json
+GoVersionML/mirai/Mirai-greip_flood4.json
+GoVersionML/mirai/Mirai-greip_flood5.json
+GoVersionML/mirai/Mirai-greip_flood6.json
+GoVersionML/mirai/Mirai-greip_flood7.json
+GoVersionML/mirai/Mirai-greip_flood8.json
+GoVersionML/mirai/Mirai-greip_flood9.json
+GoVersionML/stresstest/merge.go
+GoVersionML/Xgboost/botnet_xgboost backup de nieuwe.json
+GoVersionML/Xgboost/botnet_xgboost copy backup.json
+pcap_xgboost.json
+README (3).pdf
+Scripts/flow_1.json
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged01.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged02.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged03.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged04.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged05.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged06.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged07.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged08.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged09.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged10.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged11.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged12.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged13.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged14.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged15.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged16.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged17.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged18.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged19.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged20.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged21.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged22.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged23.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged24.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged25.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged26.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged27.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged28.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged29.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged30.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged31.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged32.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged33.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged34.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged35.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged36.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged37.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged38.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged39.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged40.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged41.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged42.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged43.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged44.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged45.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged46.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged47.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged48.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged49.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged50.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged51.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged52.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged53.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged54.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged55.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged56.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged57.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged58.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged59.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged60.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged61.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged62.csv
+xgboosttraining/MERGED_CSV (1)/MERGED_CSV/Merged63.csv
+xgboosttraining/netflow_csv/NetFlow_v2_Features.csv
+xgboosttraining/netflow_csv/NF-BoT-IoT-v2.csv
+xgboosttraining/netflow_csv/NF-CSE-CIC-IDS2018-v2.csv
+xgboosttraining/netflow_csv/NF-ToN-IoT-v2.csv
+xgboosttraining/netflow_csv/NF-UNSW-NB15-v2.csv
+xgboosttraining/netflow_csv/NF-UQ-NIDS-v2.csv
+xgboosttraining/README (4).pdf
+GoVersionML/stresstest/clone_netflow_ips/flow_1_clone_01.json
+GoVersionML/stresstest/clone_netflow_ips_run/flow_1_clone_01.json
+GoVersionML/stresstest/clone_netflow_ips_run/flow_1_clone_02.json
+GoVersionML/tools/clone_netflow_ips/main.go
+GoVersionML/tools/clone_netflow_ips/stresstest/clone_netflow_ips/flow_1_clone_01.json
+GoVersionML/tools/clone_netflow_ips/stresstest/clone_netflow_ips/flow_1_clone_02.json
+GoVersionML/tools/clone_netflow_ips/stresstest/clone_netflow_ips/flow_1_clone_03.json
+GoVersionML/tools/clone_netflow_ips/stresstest/clone_netflow_ips/flow_1_clone_04.json
+GoVersionML/tools/clone_netflow_ips/stresstest/clone_netflow_ips/flow_1_clone_05.json
+GoVersionML/tools/clone_netflow_ips/stresstest/clone_netflow_ips/flow_1_clone_06.json
+GoVersionML/tools/clone_netflow_ips/stresstest/clone_netflow_ips/flow_1_clone_07.json
+GoVersionML/tools/clone_netflow_ips/stresstest/clone_netflow_ips/flow_1_clone_08.json
+GoVersionML/tools/clone_netflow_ips/stresstest/clone_netflow_ips/flow_1_clone_09.json
+GoVersionML/tools/clone_netflow_ips/stresstest/clone_netflow_ips/flow_1_clone_10.json
+GoVersionML/tools/clone_netflow_ips/stresstest/csv/flow_1_clone_10.csv
+GoVersionML/tools/clone_netflow_ips/stresstest/csv/flow_1_clone_09.csv
+GoVersionML/tools/clone_netflow_ips/stresstest/csv/flow_1_clone_08.csv
+GoVersionML/tools/clone_netflow_ips/stresstest/csv/flow_1_clone_07.csv
+GoVersionML/tools/clone_netflow_ips/stresstest/csv/flow_1_clone_06.csv
+GoVersionML/tools/clone_netflow_ips/stresstest/csv/flow_1_clone_05.csv
+GoVersionML/tools/clone_netflow_ips/stresstest/csv/flow_1_clone_04.csv
+GoVersionML/tools/clone_netflow_ips/stresstest/csv/flow_1_clone_03.csv
+GoVersionML/tools/clone_netflow_ips/stresstest/csv/flow_1_clone_02.csv
+GoVersionML/tools/clone_netflow_ips/stresstest/csv/flow_1_clone_01.csv
+GoVersionML/tools/clone_netflow_ips/flow_1.csv
+GoVersionML/tools/clone_netflow_ips/clone_netflow_ips.exe
+application_context.md

@@ -116,14 +116,18 @@ type Model struct {
 	// Configuration editing fields
 	cfgConcurrentFiles int
 	cfgWorkersPerFile  int
+	cfgSubnet          string
+	savedSubnet        string
 	cfgCursor          int
 }
 
 // NewModel initializes the TUI model.
 func NewModel() Model {
 	return Model{
-		state:  stateMenu,
-		cursor: 0,
+		state:       stateMenu,
+		cursor:      0,
+		cfgSubnet:   "",
+		savedSubnet: "",
 	}
 }
 
@@ -357,6 +361,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					plan := utils.GetConcurrencyPlan()
 					m.cfgConcurrentFiles = plan.ConcurrentFiles
 					m.cfgWorkersPerFile = plan.WorkersPerFile
+					m.cfgSubnet = m.savedSubnet
 					m.cfgCursor = 0
 				} else {
 					m.selectedOption = m.cursor
@@ -371,10 +376,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cfgCursor > 0 {
 					m.cfgCursor--
 				} else {
-					m.cfgCursor = 4
+					m.cfgCursor = 5
 				}
 			case "down", "j":
-				if m.cfgCursor < 4 {
+				if m.cfgCursor < 5 {
 					m.cfgCursor++
 				} else {
 					m.cfgCursor = 0
@@ -399,25 +404,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.cfgWorkersPerFile++
 					}
 				}
+			case "backspace":
+				if m.cfgCursor == 2 {
+					if len(m.cfgSubnet) > 0 {
+						m.cfgSubnet = m.cfgSubnet[:len(m.cfgSubnet)-1]
+					}
+				}
 			case "enter", " ":
 				switch m.cfgCursor {
-				case 2: // Save & Exit
+				case 2:
+					// Subnet field: enter/space does not submit, allowing user to view/type without accidental submit
+				case 3: // Save & Exit
 					utils.ConfiguredConcurrentFiles = m.cfgConcurrentFiles
 					utils.ConfiguredWorkersPerFile = m.cfgWorkersPerFile
+					m.savedSubnet = m.cfgSubnet
 					m.state = stateMenu
 					m.cursor = 0
-				case 3: // Reset to Defaults
+				case 4: // Reset to Defaults
 					utils.ConfiguredConcurrentFiles = 0
 					utils.ConfiguredWorkersPerFile = 0
+					m.savedSubnet = ""
+					m.cfgSubnet = ""
 					m.state = stateMenu
 					m.cursor = 0
-				case 4: // Cancel
+				case 5: // Cancel
 					m.state = stateMenu
 					m.cursor = 0
 				}
 			case "esc":
 				m.state = stateMenu
 				m.cursor = 0
+			default:
+				if m.cfgCursor == 2 {
+					key := msg.String()
+					if len(key) == 1 {
+						c := key[0]
+						if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '/' || c == '*' || c == ':' || c == '-' {
+							m.cfgSubnet += key
+						}
+					}
+				}
 			}
 		} else if m.state == stateFileBrowser {
 			switch msg.String() {
@@ -505,7 +531,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sharedWindowsInferred = &initialInferred
 
 				// Fire background scanning thread asynchronously
-				go func(scanPath string, finishedChan chan scanFinishedMsg, sharedBytesRead, sharedRecordsDecoded, sharedRecordsAggregated, sharedWindowsInferred *int64) {
+				go func(scanPath string, subnet string, finishedChan chan scanFinishedMsg, sharedBytesRead, sharedRecordsDecoded, sharedRecordsAggregated, sharedWindowsInferred *int64) {
 					old := pipeline.OnProgress
 					pipeline.OnProgress = func(delta int64) {
 						atomic.AddInt64(sharedBytesRead, delta)
@@ -567,6 +593,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					appConfig := &config.AppConfig{
 						InputPath:   scanPath,
 						SkipConfirm: true,
+						Subnet:      subnet,
 					}
 					results, totalUnique, totalRecords, err := pipeline.RunPipelineForInput(appConfig)
 					duration := time.Since(start)
@@ -578,7 +605,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						duration:              duration,
 						err:                   err,
 					}
-				}(m.scanPath, m.finishedChan, m.sharedBytesRead, m.sharedRecordsDecoded, m.sharedRecordsAggregated, m.sharedWindowsInferred)
+				}(m.scanPath, m.savedSubnet, m.finishedChan, m.sharedBytesRead, m.sharedRecordsDecoded, m.sharedRecordsAggregated, m.sharedWindowsInferred)
 
 				return m, tea.Batch(
 					listenForFinished(m.finishedChan),
@@ -1052,14 +1079,31 @@ func (m Model) View() string {
 		}
 		sb.WriteString(renderRow(1, fmt.Sprintf("Workers Per File (Parser Level):     %s", workersVal)) + "\n\n")
 
-		// Row 2: Save
-		sb.WriteString(renderRow(2, "[ Save & Apply Changes ]") + "\n")
-		// Row 3: Reset
-		sb.WriteString(renderRow(3, "[ Reset to Hardware Defaults ]") + "\n")
-		// Row 4: Cancel
-		sb.WriteString(renderRow(4, "[ Cancel & Go Back ]") + "\n\n")
+		// Row 2: IP Subnet Filter
+		subnetVal := m.cfgSubnet
+		if subnetVal == "" {
+			subnetVal = "(None - parse all IPs)"
+		}
+		var subnetRowText string
+		if m.cfgCursor == 2 {
+			subnetRowText = fmt.Sprintf("IP Subnet Filter (type to edit):     %s█", m.cfgSubnet)
+		} else {
+			subnetRowText = fmt.Sprintf("IP Subnet Filter:                    %s", subnetVal)
+		}
+		sb.WriteString(renderRow(2, subnetRowText) + "\n\n")
 
-		sb.WriteString("  " + hintStyle.Render("Use ↑/↓ or j/k to navigate • ←/→ or h/l to adjust values • Enter to select • Esc to back") + "\n\n")
+		// Row 3: Save
+		sb.WriteString(renderRow(3, "[ Save & Apply Changes ]") + "\n")
+		// Row 4: Reset
+		sb.WriteString(renderRow(4, "[ Reset to Hardware Defaults ]") + "\n")
+		// Row 5: Cancel
+		sb.WriteString(renderRow(5, "[ Cancel & Go Back ]") + "\n\n")
+
+		if m.cfgCursor == 2 {
+			sb.WriteString("  " + hintStyle.Render("Use ↑/↓ to navigate • Type characters to edit (e.g. 192.251.x.x) • Backspace to erase • Esc to back") + "\n\n")
+		} else {
+			sb.WriteString("  " + hintStyle.Render("Use ↑/↓ or j/k to navigate • ←/→ or h/l to adjust values • Enter to select • Esc to back") + "\n\n")
+		}
 	}
 
 	// Render within an elegant border
