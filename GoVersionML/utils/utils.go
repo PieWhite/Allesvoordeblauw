@@ -1,17 +1,21 @@
+/*
+Package utils provides concurrency planning and parameter tuning calculations
+for the Pencilgon application.
+
+It manages hardware CPU core auto-detection, recommended limits on parallel workers
+per file to optimize pipeline performance, and concurrency plans for parsing multiple files.
+*/
 package utils
 
 import "runtime"
 
 var numCPU = runtime.NumCPU
 
-// WorkerCountOverride allows overriding the optimal worker count calculation
 var WorkerCountOverride int = 0
 
-// User-configured values (0 means use auto-detected defaults)
 var ConfiguredConcurrentFiles int = 0
 var ConfiguredWorkersPerFile int = 0
 
-// OptimalWorkerCount returns the optimal worker count for parsing a single file.
 func OptimalWorkerCount() int {
 	if WorkerCountOverride > 0 {
 		return WorkerCountOverride
@@ -19,24 +23,21 @@ func OptimalWorkerCount() int {
 	if ConfiguredWorkersPerFile > 0 {
 		return ConfiguredWorkersPerFile
 	}
-	numWorkers := numCPU() / 4 // Align with physical cores and pipeline overhead
+	numWorkers := numCPU() / 4
 	if numWorkers < 2 {
 		numWorkers = 2
 	}
-	// Cap at 8 to prevent excessive scheduling overhead on high-core-count machines
 	if numWorkers > 8 {
 		numWorkers = 8
 	}
 	return numWorkers
 }
 
-// ConcurrencyPlan holds the planned concurrency parameters
 type ConcurrencyPlan struct {
 	ConcurrentFiles int
 	WorkersPerFile  int
 }
 
-// GetConcurrencyPlan determines the optimal layout of directory-level and file-level parallelism
 func GetConcurrencyPlan() ConcurrencyPlan {
 	if ConfiguredConcurrentFiles > 0 && ConfiguredWorkersPerFile > 0 {
 		return ConcurrencyPlan{
@@ -47,7 +48,6 @@ func GetConcurrencyPlan() ConcurrencyPlan {
 	return GetRecommendedPlan()
 }
 
-// GetRecommendedPlan returns the recommended concurrency plan without user overrides
 func GetRecommendedPlan() ConcurrencyPlan {
 	nc := numCPU()
 	if nc <= 4 {
@@ -66,8 +66,6 @@ func GetRecommendedPlan() ConcurrencyPlan {
 		return ConcurrencyPlan{ConcurrentFiles: 4, WorkersPerFile: 8}
 	}
 
-	// For massive machines (e.g. 128 threads), cap workers per file at 8
-	// and concurrent files at 8 to avoid lock/disk contention.
 	cf := nc / 16
 	if cf > 8 {
 		cf = 8

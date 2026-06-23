@@ -1,3 +1,9 @@
+/*
+Package utils_test provides unit tests for the Pencilgon utils package.
+
+It verifies optimal worker count calculations and concurrency plan layouts
+under different simulated CPU core environments and configuration overrides.
+*/
 package utils
 
 import (
@@ -21,7 +27,6 @@ func TestOptimalWorkerCount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
 			originalNumCPU := numCPU
 			defer func() { numCPU = originalNumCPU }()
 
@@ -54,30 +59,30 @@ func TestOptimalWorkerCount(t *testing.T) {
 			t.Errorf("Actual execution mismatch: got %v, expected %v", got, expected)
 		}
 	})
+}
 
-	t.Run("GetConcurrencyPlan tests", func(t *testing.T) {
-		plans := []struct {
-			cores     int
-			wantFiles int
-			wantWork  int
-		}{
-			{4, 1, 2},
-			{8, 2, 2},
-			{16, 2, 2},
-			{32, 4, 4},
-			{64, 4, 8},
-			{128, 8, 8},
+func TestGetConcurrencyPlan(t *testing.T) {
+	plans := []struct {
+		cores     int
+		wantFiles int
+		wantWork  int
+	}{
+		{4, 1, 2},
+		{8, 2, 2},
+		{16, 2, 2},
+		{32, 4, 4},
+		{64, 4, 8},
+		{128, 8, 8},
+	}
+
+	originalNumCPU := numCPU
+	defer func() { numCPU = originalNumCPU }()
+
+	for _, p := range plans {
+		numCPU = func() int { return p.cores }
+		plan := GetConcurrencyPlan()
+		if plan.ConcurrentFiles != p.wantFiles || plan.WorkersPerFile != p.wantWork {
+			t.Errorf("Plan for %d cores: got (%d, %d), want (%d, %d)", p.cores, plan.ConcurrentFiles, plan.WorkersPerFile, p.wantFiles, p.wantWork)
 		}
-
-		originalNumCPU := numCPU
-		defer func() { numCPU = originalNumCPU }()
-
-		for _, p := range plans {
-			numCPU = func() int { return p.cores }
-			plan := GetConcurrencyPlan()
-			if plan.ConcurrentFiles != p.wantFiles || plan.WorkersPerFile != p.wantWork {
-				t.Errorf("Plan for %d cores: got (%d, %d), want (%d, %d)", p.cores, plan.ConcurrentFiles, plan.WorkersPerFile, p.wantFiles, p.wantWork)
-			}
-		}
-	})
+	}
 }
