@@ -1,8 +1,11 @@
+// Package scanner provides high-performance, concurrent stream-processing parsers
+// for Netflow logs in JSON, NDJSON, CSV, and PCAP formats.
 package scanner
 
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -43,7 +46,6 @@ func splitJSONObjects(data []byte, atEOF bool) (advance int, token []byte, err e
 		return 0, nil, nil
 	}
 
-	// Find the start of the next JSON object
 	start := bytes.IndexByte(data, '{')
 	if start == -1 {
 		if atEOF {
@@ -52,7 +54,6 @@ func splitJSONObjects(data []byte, atEOF bool) (advance int, token []byte, err e
 		return 0, nil, nil
 	}
 
-	// Find the matching closing brace
 	end := bytes.IndexByte(data[start:], '}')
 	if end == -1 {
 		if atEOF {
@@ -71,6 +72,8 @@ type workerResult struct {
 	err     error
 	batch   *Batch
 }
+
+var OnRecordsDecoded func(delta int64)
 
 func StreamJSON(stream io.Reader, processFn func([]models.NetflowRecord)) error {
 	return StreamNetflow(stream, processFn, false)
@@ -92,7 +95,7 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go Worker(chunksChan, resultsChan, &wg, isNDJSON, &hasError)
+		go Worker(chunksChan, resultsChan, &wg, isNDJSON, &hasError, nil)
 	}
 
 	if isNDJSON {
@@ -127,10 +130,12 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 			}
 
 			if nextRes.records != nil && len(*nextRes.records) > 0 {
-				processFn(*nextRes.records)
-			}
-
-			if nextRes.records != nil {
+				if OnRecordsDecoded != nil {
+					OnRecordsDecoded(int64(len(*nextRes.records)))
+				}
+				if processFn != nil {
+					processFn(*nextRes.records)
+				}
 				recordsPtr := nextRes.records
 				*recordsPtr = (*recordsPtr)[:0]
 				recordsPool.Put(recordsPtr)
@@ -143,7 +148,6 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 		}
 	}
 
-	// Drain pendingResults in order at shutdown, treating missing sequence numbers as empty batches
 	for len(pendingResults) > 0 {
 		nextRes, found := pendingResults[expectedSeq]
 		if found {
@@ -154,10 +158,12 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 			}
 
 			if nextRes.records != nil && len(*nextRes.records) > 0 {
-				processFn(*nextRes.records)
-			}
-
-			if nextRes.records != nil {
+				if OnRecordsDecoded != nil {
+					OnRecordsDecoded(int64(len(*nextRes.records)))
+				}
+				if processFn != nil {
+					processFn(*nextRes.records)
+				}
 				recordsPtr := nextRes.records
 				*recordsPtr = (*recordsPtr)[:0]
 				recordsPool.Put(recordsPtr)
@@ -175,6 +181,16 @@ func StreamNetflow(stream io.Reader, processFn func([]models.NetflowRecord), isN
 	}
 
 	return firstErr
+}
+
+// StreamNetflowToChannel is a backward-compatible wrapper that parses and streams NetflowRecords to a channel safely.
+func StreamNetflowToChannel(ctx context.Context, stream io.Reader, out chan<- []models.NetflowRecord, isNDJSON bool) error {
+	return StreamNetflow(stream, func(records []models.NetflowRecord) {
+		select {
+		case <-ctx.Done():
+		case out <- cloneRecords(records):
+		}
+	}, isNDJSON)
 }
 
 func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, splitFn bufio.SplitFunc, hasError *atomic.Bool) {
@@ -202,12 +218,10 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, 
 
 		raw := scanner.Bytes()
 
-		// Skip empty entries
 		if len(raw) == 0 {
 			continue
 		}
 
-		// If the current arena is too small to fit the new line, allocate a new one.
 		if batch.Offset+len(raw) > len(batch.Arena) {
 			newCap := len(batch.Arena) * 2
 			if newCap < len(raw) {
@@ -217,7 +231,6 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, 
 			batch.Offset = 0
 		}
 
-		// Copy the dynamically read bytes into our pre-allocated Arena
 		n := copy(batch.Arena[batch.Offset:], raw)
 		batch.Lines = append(batch.Lines, batch.Arena[batch.Offset:batch.Offset+n])
 		batch.Offset += n
@@ -244,7 +257,7 @@ func Producer(reader io.Reader, chunksChan chan<- *Batch, errChan chan<- error, 
 	errChan <- scanner.Err()
 }
 
-func Worker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sync.WaitGroup, isNDJSON bool, hasError *atomic.Bool) {
+func Worker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sync.WaitGroup, isNDJSON bool, hasError *atomic.Bool, processFn func([]models.NetflowRecord)) {
 	defer wg.Done()
 
 	for batch := range chunksChan {
@@ -259,7 +272,6 @@ func Worker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sync.
 				break
 			}
 
-			// Trim potential trailing comma suffixes or spaces (common in array segments or lines)
 			rawBytes = bytes.TrimSpace(rawBytes)
 			rawBytes = bytes.TrimSuffix(rawBytes, []byte{','})
 			rawBytes = bytes.TrimSpace(rawBytes)
@@ -286,7 +298,8 @@ func Worker(chunksChan <-chan *Batch, resultsChan chan<- workerResult, wg *sync.
 			resultsChan <- workerResult{records: recordsPtr, err: firstErr, batch: batch}
 		} else {
 			recordsPool.Put(recordsPtr)
-			batchPool.Put(batch)
+			resultsChan <- workerResult{records: nil, err: nil, batch: batch}
 		}
 	}
 }
+

@@ -9,7 +9,8 @@ import (
 
 func TestPcapIPStats_FeatureCalculation(t *testing.T) {
 	// Create PCAP stats block for an IP
-	stats := NewPcapIPStats("192.168.1.1", 1673536500)
+	ipVal, _ := ParseIPv4("192.168.1.1")
+	stats := NewPcapIPStats(ipVal, 1673536500)
 
 	// Simulate 4 TCP packets with varying properties
 	packets := []models.PcapRecord{
@@ -110,8 +111,8 @@ func TestPcapAggregator(t *testing.T) {
 
 	// Total unique keys in map (Window 1: 1673536500 -> IPs "192.168.1.1", "10.0.0.1", "10.0.0.2")
 	// Window 2: 1673536800 -> IPs "192.168.1.1", "10.0.0.1"
-	if len(agg.IPs) != 5 {
-		t.Errorf("expected 5 map entries, got %d", len(agg.IPs))
+	if agg.NumActiveKeys() != 5 {
+		t.Errorf("expected 5 map entries, got %d", agg.NumActiveKeys())
 	}
 
 	// Flush old windows before 1673536800
@@ -120,9 +121,15 @@ func TestPcapAggregator(t *testing.T) {
 		t.Errorf("expected 3 flushed stats from first window, got %d", len(flushed))
 	}
 
+	for i := 0; i < numShards; i++ {
+		for k := range agg.shards[i].IPs {
+			t.Logf("Active key: IP=%s, Window=%d", FormatIPv4(k.IP), k.Window)
+		}
+	}
+
 	// Map should have 2 entries left
-	if len(agg.IPs) != 2 {
-		t.Errorf("expected 2 remaining entries, got %d", len(agg.IPs))
+	if agg.NumActiveKeys() != 2 {
+		t.Errorf("expected 2 remaining entries, got %d", agg.NumActiveKeys())
 	}
 
 	// Flush all remaining
@@ -131,7 +138,7 @@ func TestPcapAggregator(t *testing.T) {
 		t.Errorf("expected 2 flushed remaining stats, got %d", len(allFlushed))
 	}
 
-	if len(agg.IPs) != 0 {
-		t.Errorf("expected 0 entries left, got %d", len(agg.IPs))
+	if agg.NumActiveKeys() != 0 {
+		t.Errorf("expected 0 entries left, got %d", agg.NumActiveKeys())
 	}
 }

@@ -1,7 +1,9 @@
+// Package scanner provides high-performance, zero-allocation PCAP file stream parsing.
 package scanner
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -10,47 +12,59 @@ import (
 	"goversion/models"
 )
 
-// PcapBatch pools records and packet buffers together
 type PcapBatch struct {
 	Records   []models.PcapRecord
-	PacketBuf []byte // 64 KB packet buffer to eliminate heap allocations per packet
+	PacketBuf []byte
 }
 
 var pcapBatchPool = sync.Pool{
 	New: func() interface{} {
 		return &PcapBatch{
 			Records:   make([]models.PcapRecord, 0, 1000),
-			PacketBuf: make([]byte, 65536), // 64 KB preallocated
+			PacketBuf: make([]byte, 65536),
 		}
 	},
 }
 
-// readerPool pools 1 MB bufio.Reader instances to eliminate dynamic buffer allocations per file stream
 var readerPool = sync.Pool{
 	New: func() interface{} {
 		return bufio.NewReaderSize(nil, 1024*1024)
 	},
 }
 
-// flagsCache pre-allocates string representation of all possible TCP flag byte combinations
 var flagsCache [256]string
 
 func init() {
 	for i := 0; i < 256; i++ {
 		var f []byte
-		if i&0x01 != 0 { f = append(f, 'F') } // FIN
-		if i&0x02 != 0 { f = append(f, 'S') } // SYN
-		if i&0x04 != 0 { f = append(f, 'R') } // RST
-		if i&0x08 != 0 { f = append(f, 'P') } // PSH
-		if i&0x10 != 0 { f = append(f, 'A') } // ACK
-		if i&0x20 != 0 { f = append(f, 'U') } // URG
-		if i&0x40 != 0 { f = append(f, 'E') } // ECE
-		if i&0x80 != 0 { f = append(f, 'C') } // CWR
+		if i&0x01 != 0 {
+			f = append(f, 'F')
+		}
+		if i&0x02 != 0 {
+			f = append(f, 'S')
+		}
+		if i&0x04 != 0 {
+			f = append(f, 'R')
+		}
+		if i&0x08 != 0 {
+			f = append(f, 'P')
+		}
+		if i&0x10 != 0 {
+			f = append(f, 'A')
+		}
+		if i&0x20 != 0 {
+			f = append(f, 'U')
+		}
+		if i&0x40 != 0 {
+			f = append(f, 'E')
+		}
+		if i&0x80 != 0 {
+			f = append(f, 'C')
+		}
 		flagsCache[i] = string(f)
 	}
 }
 
-// formatIPv4 converts a 4-byte IP address to an ASCII string directly in the buffer
 func formatIPv4(buf []byte, ip []byte) int {
 	n := 0
 	for i := 0; i < 4; i++ {
@@ -82,10 +96,27 @@ func formatIPv4(buf []byte, ip []byte) int {
 	return n
 }
 
-// StreamPCAP parses a raw PCAP byte stream sequentially at max I/O speed, 
-// using pooled 1MB readers, static TCP flags cache, and a thread-local IP string cache 
-// to guarantee exactly zero heap allocations for already-seen IPs and eliminate memory corruption.
 func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
+	ch := make(chan []models.PcapRecord, 10)
+	var streamErr error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		streamErr = StreamPCAPToChannel(context.Background(), stream, ch)
+		close(ch)
+	}()
+
+	for records := range ch {
+		if processFn != nil {
+			processFn(records)
+		}
+	}
+	wg.Wait()
+	return streamErr
+}
+
+func StreamPCAPToChannel(ctx context.Context, stream io.Reader, out chan<- []models.PcapRecord) error {
 	br := readerPool.Get().(*bufio.Reader)
 	br.Reset(stream)
 	defer func() {
@@ -93,7 +124,6 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 		readerPool.Put(br)
 	}()
 
-	// Read PCAP Global Header (24 bytes) using stack buffer
 	var globalHeader [24]byte
 	if _, err := io.ReadFull(br, globalHeader[:]); err != nil {
 		return fmt.Errorf("failed to read global header: %w", err)
@@ -103,12 +133,12 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 	var byteOrder binary.ByteOrder = binary.LittleEndian
 	tsDiv := 1e6
 	switch magic {
-	case 0xa1b2c3d4: // microsecond-resolution, little-endian
-	case 0xa1b23c4d: // nanosecond-resolution, little-endian
+	case 0xa1b2c3d4:
+	case 0xa1b23c4d:
 		tsDiv = 1e9
-	case 0xd4c3b2a1: // microsecond-resolution, big-endian
+	case 0xd4c3b2a1:
 		byteOrder = binary.BigEndian
-	case 0x4d3cb2a1: // nanosecond-resolution, big-endian
+	case 0x4d3cb2a1:
 		byteOrder = binary.BigEndian
 		tsDiv = 1e9
 	default:
@@ -127,7 +157,6 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 		pcapBatchPool.Put(batch)
 	}()
 
-	// Thread-local IP string cache to prevent unsafe string allocation and arena memory corruption
 	ipCache := make(map[uint32]string, 1024)
 	getIPStr := func(ipBytes []byte) string {
 		val := binary.BigEndian.Uint32(ipBytes)
@@ -144,6 +173,12 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 	var packetHeader [16]byte
 
 	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		_, err := io.ReadFull(br, packetHeader[:])
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
@@ -161,7 +196,6 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 			return fmt.Errorf("packet length %d exceeds maximum supported buffer size", inclLen)
 		}
 
-		// Read packet bytes directly into pooled batch packet buffer (No heap allocation!)
 		if _, err := io.ReadFull(br, batch.PacketBuf[:inclLen]); err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				break
@@ -170,18 +204,14 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 		}
 
 		data := batch.PacketBuf[:inclLen]
-		if len(data) < 14 { // Less than Ethernet header
+		if len(data) < 14 {
 			continue
 		}
 
 		etherType := binary.BigEndian.Uint16(data[12:14])
 
-		// ARP (0x0806): extract sender IP from ARP payload and emit a record so
-		// ARPCount is populated in the feature vector (feature #26).
-		// LLC frames (etherType ≤ 0x05DC) carry no IP layer and cannot be attributed
-		// to a source IP, so they remain zero — acceptable given their rarity in IoT captures.
 		if etherType == 0x0806 {
-			if len(data) < 42 { // 14 (Ethernet) + 28 (ARP minimum)
+			if len(data) < 42 {
 				continue
 			}
 			senderIPStr := getIPStr(data[22:26])
@@ -190,20 +220,29 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 				SrcIP:     senderIPStr,
 				DstIP:     getIPStr(data[32:36]),
 				Length:    int(origLen),
-				Proto:     2054, // ARP EtherType used as sentinel (no IP protocol uses this)
+				Proto:     2054,
 			})
 			if len(batch.Records) >= 1000 {
-				processFn(batch.Records)
+				if OnRecordsDecoded != nil {
+					OnRecordsDecoded(int64(len(batch.Records)))
+				}
+				recordsToSend := make([]models.PcapRecord, len(batch.Records))
+				copy(recordsToSend, batch.Records)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case out <- recordsToSend:
+				}
 				batch.Records = batch.Records[:0]
 			}
 			continue
 		}
 
-		if etherType != 0x0800 { // Only support IPv4 packets for remaining ML stats
+		if etherType != 0x0800 {
 			continue
 		}
 
-		if len(data) < 14+20 { // Less than IPv4 minimum header
+		if len(data) < 14+20 {
 			continue
 		}
 
@@ -227,7 +266,7 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 		var tcpFlags string
 
 		transportHeader := ipHeader[ihl:]
-		if proto == 6 { // TCP
+		if proto == 6 {
 			if len(transportHeader) < 20 {
 				continue
 			}
@@ -235,16 +274,15 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 			dstPort = int(binary.BigEndian.Uint16(transportHeader[2:4]))
 			flagsByte := transportHeader[13]
 			tcpFlags = flagsCache[flagsByte]
-		} else if proto == 17 { // UDP
+		} else if proto == 17 {
 			if len(transportHeader) < 8 {
 				continue
 			}
 			srcPort = int(binary.BigEndian.Uint16(transportHeader[0:2]))
 			dstPort = int(binary.BigEndian.Uint16(transportHeader[2:4]))
-		} else if proto == 1 || proto == 2 { // ICMP / IGMP — no ports, emit with 0
+		} else if proto == 1 || proto == 2 {
 			srcPort, dstPort = 0, 0
 		} else {
-			// Skip other transport protocols as they don't carry port stats
 			continue
 		}
 
@@ -264,13 +302,31 @@ func StreamPCAP(stream io.Reader, processFn func([]models.PcapRecord)) error {
 		})
 
 		if len(batch.Records) >= 1000 {
-			processFn(batch.Records)
+			if OnRecordsDecoded != nil {
+				OnRecordsDecoded(int64(len(batch.Records)))
+			}
+			recordsToSend := make([]models.PcapRecord, len(batch.Records))
+			copy(recordsToSend, batch.Records)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case out <- recordsToSend:
+			}
 			batch.Records = batch.Records[:0]
 		}
 	}
 
 	if len(batch.Records) > 0 {
-		processFn(batch.Records)
+		if OnRecordsDecoded != nil {
+			OnRecordsDecoded(int64(len(batch.Records)))
+		}
+		recordsToSend := make([]models.PcapRecord, len(batch.Records))
+		copy(recordsToSend, batch.Records)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case out <- recordsToSend:
+		}
 	}
 
 	return nil

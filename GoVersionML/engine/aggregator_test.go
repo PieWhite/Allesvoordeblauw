@@ -1,3 +1,5 @@
+// aggregator_test.go verifies sharded aggregation correctness including
+// timestamp parsing, protocol/flag tracking, window flushing, and thread safety.
 package engine
 
 import (
@@ -9,22 +11,24 @@ import (
 	"goversion/models"
 )
 
-// Helper to avoid repetitive error handling in tests
 func parseTimeHelper(s string) time.Time {
 	t, _ := time.Parse("2006-01-02T15:04:05.000", s)
 	return t
 }
 
 func getStatsForIP(a *Aggregator, ip string) *IPStats {
+	targetIP, ok := ParseIPv4(ip)
+	if !ok {
+		return nil
+	}
 	for _, s := range a.AllIPStats() {
-		if s.IP == ip {
+		if s.IP == targetIP {
 			return s
 		}
 	}
 	return nil
 }
 
-// TestParseTimestamp_Boundary checks the ISO-like format and internal state.
 func TestParseTimestamp_Boundary(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -40,7 +44,7 @@ func TestParseTimestamp_Boundary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a := NewAggregator() // New aggregator per test ensures clean log flag
+			a := NewAggregator()
 			_, ok := a.parseTimestamp(tt.input)
 			if ok != tt.wantOk {
 				t.Errorf("%s: got %v, want %v", tt.name, ok, tt.wantOk)
@@ -49,7 +53,6 @@ func TestParseTimestamp_Boundary(t *testing.T) {
 	}
 }
 
-// TestAggregator_Update_DataIntegrity ensures Src and Dst stats are isolated.
 func TestAggregator_Update_DataIntegrity(t *testing.T) {
 	a := NewAggregator()
 	rec := models.NetflowRecord{
@@ -80,22 +83,27 @@ func TestAggregator_Update_DataIntegrity(t *testing.T) {
 	}
 
 	dstStats := getStatsForIP(a, "192.168.1.1")
-	if dstStats == nil {
-		t.Fatal("Destination IP stats not found in aggregator")
+	found := dstStats.FirstInboundPort == 443
+	if !found {
+		for _, port := range dstStats.InboundDstPorts {
+			if port == 443 {
+				found = true
+				break
+			}
+		}
 	}
-	if _, ok := dstStats.InboundDstPorts[443]; !ok {
+	if !found {
 		t.Error("Destination inbound port 443 was not tracked")
 	}
 }
 
-// TestUpdate_ProtocolsAndFlags targets UDP, ICMP, and RST count logic.
 func TestUpdate_ProtocolsAndFlags(t *testing.T) {
 	a := NewAggregator()
 
 	records := []models.NetflowRecord{
-		{Src4Addr: "1.1.1.1", Proto: 17, First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"},               // UDP
-		{Src4Addr: "1.1.1.1", Proto: 1, First: "2026-03-17T12:00:01.000", Last: "2026-03-17T12:00:01.000"},                // ICMP
-		{Src4Addr: "1.1.1.1", Proto: 6, TCPFlags: "R", First: "2026-03-17T12:00:02.000", Last: "2026-03-17T12:00:02.000"}, // RST
+		{Src4Addr: "1.1.1.1", Proto: 17, First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"},
+		{Src4Addr: "1.1.1.1", Proto: 1, First: "2026-03-17T12:00:01.000", Last: "2026-03-17T12:00:01.000"},
+		{Src4Addr: "1.1.1.1", Proto: 6, TCPFlags: "R", First: "2026-03-17T12:00:02.000", Last: "2026-03-17T12:00:02.000"},
 	}
 
 	for _, r := range records {
@@ -115,13 +123,12 @@ func TestUpdate_ProtocolsAndFlags(t *testing.T) {
 	}
 }
 
-// TestUpdate_DurationClamping targets: if duration < 0 { duration = 0 }
 func TestUpdate_DurationClamping(t *testing.T) {
 	a := NewAggregator()
 	rec := models.NetflowRecord{
 		Src4Addr: "1.1.1.1",
 		First:    "2026-03-17T12:00:05.000",
-		Last:     "2026-03-17T12:00:00.000", // Negative duration
+		Last:     "2026-03-17T12:00:00.000",
 	}
 
 	a.Update(rec)
@@ -132,7 +139,6 @@ func TestUpdate_DurationClamping(t *testing.T) {
 	}
 }
 
-// TestAggregator_Concurrency hammers the aggregator from many goroutines to ensure thread safety
 func TestAggregator_Concurrency(t *testing.T) {
 	a := NewAggregator()
 	var wg sync.WaitGroup
@@ -144,14 +150,12 @@ func TestAggregator_Concurrency(t *testing.T) {
 		go func(w int) {
 			defer wg.Done()
 			for j := 0; j < recordsPerWorker; j++ {
-				// High contention target (all workers write here)
 				a.Update(models.NetflowRecord{
 					Src4Addr: "10.0.0.1",
 					First:    "2026-03-17T12:00:00.000",
 					Last:     "2026-03-17T12:00:00.000",
 					InBytes:  10,
 				})
-				// Low contention target (one worker writes here)
 				a.Update(models.NetflowRecord{
 					Src4Addr: fmt.Sprintf("10.1.0.%d", w),
 					First:    "2026-03-17T12:00:00.000",
@@ -181,36 +185,30 @@ func TestAggregator_Concurrency(t *testing.T) {
 
 func TestAggregator_ExtractAndFlushBefore(t *testing.T) {
 	a := NewAggregator()
-	// Insert 2 records in different windows.
-	// Win1: 2026-03-17T12:00:00.000 -> 1773748800
-	// Win2: 2026-03-17T12:05:00.000 -> 1773749100
 	a.Update(models.NetflowRecord{Src4Addr: "1.1.1.1", First: "2026-03-17T12:00:00.000", Last: "2026-03-17T12:00:00.000"})
 	a.Update(models.NetflowRecord{Src4Addr: "2.2.2.2", First: "2026-03-17T12:05:00.000", Last: "2026-03-17T12:05:00.000"})
 
-	// Extract before Win2
 	flushed := a.ExtractAndFlushBefore(1773749100)
 
 	if len(flushed) != 1 {
 		t.Fatalf("Expected 1 flushed stats, got %d", len(flushed))
 	}
-	if flushed[0].IP != "1.1.1.1" {
-		t.Errorf("Expected IP 1.1.1.1 flushed, got %s", flushed[0].IP)
+	if FormatIPv4(flushed[0].IP) != "1.1.1.1" {
+		t.Errorf("Expected IP 1.1.1.1 flushed, got %s", FormatIPv4(flushed[0].IP))
 	}
 
-	// Verify remaining
 	remaining := a.AllIPStats()
 	if len(remaining) != 1 {
 		t.Fatalf("Expected 1 remaining stats, got %d", len(remaining))
 	}
-	if remaining[0].IP != "2.2.2.2" {
-		t.Errorf("Expected IP 2.2.2.2 remaining, got %s", remaining[0].IP)
+	if FormatIPv4(remaining[0].IP) != "2.2.2.2" {
+		t.Errorf("Expected IP 2.2.2.2 remaining, got %s", FormatIPv4(remaining[0].IP))
 	}
 }
 
 func TestAggregator_Update_TCPFlagsAndPorts(t *testing.T) {
 	a := NewAggregator()
 
-	// Syn only, well-known port
 	a.Update(models.NetflowRecord{
 		Src4Addr: "3.3.3.3",
 		Proto:    6,
@@ -230,7 +228,6 @@ func TestAggregator_Update_TCPFlagsAndPorts(t *testing.T) {
 	}
 
 	vec := stats.ToMLVector()
-	// pct_syn_only is index 18
 	if vec[18] != 100.0 {
 		t.Errorf("Expected 100%% pct_syn_only, got %v", vec[18])
 	}

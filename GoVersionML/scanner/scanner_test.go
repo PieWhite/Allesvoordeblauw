@@ -1,3 +1,5 @@
+// Package scanner contains unit tests for the scanner package, validating concurrent
+// stream-parsing of JSON and NDJSON formatted logs under various data constraints.
 package scanner
 
 import (
@@ -11,7 +13,6 @@ import (
 	"goversion/models"
 )
 
-// errorReader is a helper for simulating read errors.
 type errorReader struct {
 	readCount int
 	maxReads  int
@@ -23,92 +24,196 @@ func (e *errorReader) Read(p []byte) (n int, err error) {
 		return 0, e.err
 	}
 	e.readCount++
-	// Return a valid JSON array start before failing
 	validJSON := []byte(`[{"first":"2023-01-01T00:00:00Z","last":"2023-01-01T00:00:01Z","in_packets":10,"in_bytes":100,"proto":6,"tcp_flags":"SYN","src_port":1234,"dst_port":80,"src4_addr":"192.168.1.1","dst4_addr":"10.0.0.1"},`)
 	n = copy(p, validJSON)
 	return n, nil
 }
 
-func TestStreamNetflow_ValidData(t *testing.T) {
-	jsonData := `[
+func TestStreamJSON(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		wantCount     int32
+		wantErr       bool
+		checkContents func(t *testing.T, recs []models.NetflowRecord)
+	}{
+		{
+			name: "Valid JSON array",
+			input: `[
 {"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"},
 {"first":"3","last":"4","in_packets":2,"in_bytes":20,"proto":17,"tcp_flags":"","src_port":124,"dst_port":457,"src4_addr":"1.1.1.2","dst4_addr":"2.2.2.3"}
-]`
-	reader := strings.NewReader(jsonData)
-
-	var totalProcessed int32
-	var mu sync.Mutex
-	var processedRecords []models.NetflowRecord
-
-	err := StreamJSON(reader, func(records []models.NetflowRecord) {
-		atomic.AddInt32(&totalProcessed, int32(len(records)))
-		mu.Lock()
-		processedRecords = append(processedRecords, records...)
-		mu.Unlock()
-	})
-
-	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
-	}
-
-	if totalProcessed != 2 {
-		t.Fatalf("Expected 2 records to be processed, got: %d", totalProcessed)
-	}
-
-	if len(processedRecords) != 2 {
-		t.Fatalf("Expected 2 records stored, got: %d", len(processedRecords))
-	}
-}
-
-func TestStreamNetflow_EmptyStream(t *testing.T) {
-	reader := strings.NewReader("")
-
-	var totalProcessed int32
-	err := StreamJSON(reader, func(records []models.NetflowRecord) {
-		atomic.AddInt32(&totalProcessed, int32(len(records)))
-	})
-
-	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
-	}
-
-	if totalProcessed != 0 {
-		t.Fatalf("Expected 0 records, got: %d", totalProcessed)
-	}
-}
-
-func TestStreamNetflow_InvalidData(t *testing.T) {
-	// Mixed valid and invalid data. 
-	// The invalid json must be enclosed in {} for the splitJSONObjects tokenizer to capture it.
-	jsonData := `[
+]`,
+			wantCount: 2,
+			wantErr:   false,
+			checkContents: func(t *testing.T, recs []models.NetflowRecord) {
+				if len(recs) != 2 {
+					t.Fatalf("Expected 2 records, got %d", len(recs))
+				}
+				if recs[0].Src4Addr != "1.1.1.1" || recs[1].Src4Addr != "1.1.1.2" {
+					t.Errorf("Unexpected record contents: %+v", recs)
+				}
+			},
+		},
+		{
+			name:      "Empty stream",
+			input:     "",
+			wantCount: 0,
+			wantErr:   false,
+		},
+		{
+			name: "Invalid JSON array",
+			input: `[
 {"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"},
 {INVALID_JSON_HERE},
 {"first":"3","last":"4","in_packets":2,"in_bytes":20,"proto":17,"tcp_flags":"","src_port":124,"dst_port":457,"src4_addr":"1.1.1.2","dst4_addr":"2.2.2.3"}
-]`
-
-	reader := strings.NewReader(jsonData)
-
-	var totalProcessed int32
-	err := StreamJSON(reader, func(records []models.NetflowRecord) {
-		atomic.AddInt32(&totalProcessed, int32(len(records)))
-	})
-
-	// The scanner should process the 1 valid record and return an error for the invalid one.
-	if err == nil {
-		t.Fatal("Expected an error due to invalid JSON, got nil")
+]`,
+			wantErr: true,
+		},
+		{
+			name: "Large volume",
+			input: func() string {
+				var sb strings.Builder
+				sb.WriteString("[\n")
+				record := `{"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}`
+				for i := 0; i < 5000; i++ {
+					sb.WriteString(record)
+					if i < 4999 {
+						sb.WriteString(",\n")
+					}
+				}
+				sb.WriteString("\n]")
+				return sb.String()
+			}(),
+			wantCount: 5000,
+			wantErr:   false,
+		},
+		{
+			name: "Arena growth",
+			input: func() string {
+				padding := strings.Repeat("A", 3*1024*1024)
+				return fmt.Sprintf(`[{"first":"%s","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}]`, padding)
+			}(),
+			wantCount: 1,
+			wantErr:   false,
+		},
+		{
+			name:      "Incomplete array at EOF",
+			input:     `{"first":"1","last":"2"`,
+			wantCount: 0,
+			wantErr:   false,
+		},
+		{
+			name:      "Empty array with noise spaces and commas",
+			input:     `[ , ,   , ]`,
+			wantCount: 0,
+			wantErr:   false,
+		},
 	}
 
-	// Due to concurrency, exactly how many valid ones are processed is non-deterministic
-	// But it should definitely throw an error and halt further processing.
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var processed int32
+			var mu sync.Mutex
+			var collected []models.NetflowRecord
+
+			err := StreamJSON(strings.NewReader(tt.input), func(records []models.NetflowRecord) {
+				atomic.AddInt32(&processed, int32(len(records)))
+				mu.Lock()
+				collected = append(collected, records...)
+				mu.Unlock()
+			})
+
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("StreamJSON() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+
+			if tt.wantErr {
+				return
+			}
+
+			if processed != tt.wantCount {
+				t.Errorf("Expected %d processed records, got %d", tt.wantCount, processed)
+			}
+
+			if tt.checkContents != nil {
+				tt.checkContents(t, collected)
+			}
+		})
+	}
+}
+
+func TestStreamNDJSON(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		wantCount     int32
+		wantErr       bool
+		checkContents func(t *testing.T, recs []models.NetflowRecord)
+	}{
+		{
+			name: "Valid NDJSON",
+			input: `{"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}
+{"first":"3","last":"4","in_packets":2,"in_bytes":20,"proto":17,"tcp_flags":"","src_port":124,"dst_port":457,"src4_addr":"1.1.1.2","dst4_addr":"2.2.2.3"}`,
+			wantCount: 2,
+			wantErr:   false,
+			checkContents: func(t *testing.T, recs []models.NetflowRecord) {
+				if len(recs) != 2 {
+					t.Fatalf("Expected 2 records, got %d", len(recs))
+				}
+				if recs[0].Src4Addr != "1.1.1.1" || recs[1].Src4Addr != "1.1.1.2" {
+					t.Errorf("Unexpected record contents: %+v", recs)
+				}
+			},
+		},
+		{
+			name: "Invalid NDJSON line included",
+			input: `{"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}
+{INVALID_NDJSON_HERE}
+{"first":"3","last":"4","in_packets":2,"in_bytes":20,"proto":17,"tcp_flags":"","src_port":124,"dst_port":457,"src4_addr":"1.1.1.2","dst4_addr":"2.2.2.3"}`,
+			wantCount: 2,
+			wantErr:   true,
+		},
+		{
+			name:      "Empty lines and noise",
+			input:     "\n\n   \n,\n\n  ,\n",
+			wantCount: 0,
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var processed int32
+			var mu sync.Mutex
+			var collected []models.NetflowRecord
+
+			err := StreamNDJSON(strings.NewReader(tt.input), func(records []models.NetflowRecord) {
+				atomic.AddInt32(&processed, int32(len(records)))
+				mu.Lock()
+				collected = append(collected, records...)
+				mu.Unlock()
+			})
+
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("StreamNDJSON() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+
+			if processed != tt.wantCount {
+				t.Errorf("Expected %d processed records, got %d", tt.wantCount, processed)
+			}
+
+			if tt.checkContents != nil {
+				tt.checkContents(t, collected)
+			}
+		})
+	}
 }
 
 func TestStreamNetflow_ScannerError(t *testing.T) {
 	expectedErr := errors.New("simulated read error")
 	reader := &errorReader{maxReads: 1, err: expectedErr}
 
-	err := StreamJSON(reader, func(records []models.NetflowRecord) {
-		// Do nothing, just consume
-	})
+	err := StreamJSON(reader, func(records []models.NetflowRecord) {})
 
 	if err == nil {
 		t.Fatal("Expected an error from the reader, got nil")
@@ -119,60 +224,7 @@ func TestStreamNetflow_ScannerError(t *testing.T) {
 	}
 }
 
-func TestStreamNetflow_LargeVolume(t *testing.T) {
-	const numRecords = 5000 // Creates multiple batches since batchSize is 1000
-
-	var builder strings.Builder
-	builder.WriteString("[\n")
-	validJSON := `{"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}`
-	for i := 0; i < numRecords; i++ {
-		builder.WriteString(validJSON)
-		if i < numRecords-1 {
-			builder.WriteString(",\n")
-		}
-	}
-	builder.WriteString("\n]")
-
-	reader := strings.NewReader(builder.String())
-
-	var totalProcessed int32
-	err := StreamJSON(reader, func(records []models.NetflowRecord) {
-		atomic.AddInt32(&totalProcessed, int32(len(records)))
-	})
-
-	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
-	}
-
-	if totalProcessed != numRecords {
-		t.Fatalf("Expected %d records, got: %d", numRecords, totalProcessed)
-	}
-}
-
-func TestStreamNetflow_ArenaGrowth(t *testing.T) {
-	// Create a JSON object that is very large to trigger arena growth
-	// The default arena is 2MB. We'll make a 3MB string.
-	padding := strings.Repeat("A", 3*1024*1024)
-	largeJSON := fmt.Sprintf(`[{"first":"%s","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}]`, padding)
-
-	reader := strings.NewReader(largeJSON)
-
-	var totalProcessed int32
-	err := StreamJSON(reader, func(records []models.NetflowRecord) {
-		atomic.AddInt32(&totalProcessed, int32(len(records)))
-	})
-
-	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
-	}
-
-	if totalProcessed != 1 {
-		t.Fatalf("Expected 1 record processed, got: %d", totalProcessed)
-	}
-}
-
 func TestStreamNetflow_ProcessFnConcurrency(t *testing.T) {
-	// Verify that slices passed to processFn are not corrupted across calls if processFn processes synchronously
 	jsonData := `[
 {"in_packets":1},
 {"in_packets":2},
@@ -199,7 +251,6 @@ func TestStreamNetflow_ProcessFnConcurrency(t *testing.T) {
 		t.Fatalf("Expected 3 records, got %d", len(collected))
 	}
 
-	// Check if 1, 2, 3 are all present
 	found := make(map[int64]bool)
 	for _, v := range collected {
 		found[v] = true
@@ -209,104 +260,19 @@ func TestStreamNetflow_ProcessFnConcurrency(t *testing.T) {
 	}
 }
 
-func TestStreamNDJSON_ValidData(t *testing.T) {
-	ndjsonData := `{"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}
-{"first":"3","last":"4","in_packets":2,"in_bytes":20,"proto":17,"tcp_flags":"","src_port":124,"dst_port":457,"src4_addr":"1.1.1.2","dst4_addr":"2.2.2.3"}`
-	reader := strings.NewReader(ndjsonData)
-
-	var totalProcessed int32
-	var mu sync.Mutex
-	var processedRecords []models.NetflowRecord
-
-	err := StreamNDJSON(reader, func(records []models.NetflowRecord) {
-		atomic.AddInt32(&totalProcessed, int32(len(records)))
-		mu.Lock()
-		processedRecords = append(processedRecords, records...)
-		mu.Unlock()
-	})
-
-	if err != nil {
-		t.Fatalf("Expected no error, got: %v", err)
-	}
-
-	if totalProcessed != 2 {
-		t.Fatalf("Expected 2 records to be processed, got: %d", totalProcessed)
-	}
-
-	if len(processedRecords) != 2 {
-		t.Fatalf("Expected 2 records stored, got: %d", len(processedRecords))
-	}
-}
-
-func TestStreamNDJSON_InvalidData(t *testing.T) {
-	// First is valid, second is invalid, third is valid
-	ndjsonData := `{"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}
-{INVALID_NDJSON_HERE}
-{"first":"3","last":"4","in_packets":2,"in_bytes":20,"proto":17,"tcp_flags":"","src_port":124,"dst_port":457,"src4_addr":"1.1.1.2","dst4_addr":"2.2.2.3"}`
-	reader := strings.NewReader(ndjsonData)
-
-	var totalProcessed int32
-	var mu sync.Mutex
-	var processedRecords []models.NetflowRecord
-
-	err := StreamNDJSON(reader, func(records []models.NetflowRecord) {
-		atomic.AddInt32(&totalProcessed, int32(len(records)))
-		mu.Lock()
-		processedRecords = append(processedRecords, records...)
-		mu.Unlock()
-	})
-
-	if err == nil {
-		t.Fatal("Expected an error from invalid NDJSON, got nil")
-	}
-
-	// In NDJSON mode, processing should continue despite the invalid record.
-	// Since there's 1 invalid record and 2 valid records, we should process the 2 valid ones.
-	if totalProcessed != 2 {
-		t.Fatalf("Expected 2 valid records to be processed, got: %d", totalProcessed)
-	}
-
-	if len(processedRecords) != 2 {
-		t.Fatalf("Expected 2 records stored, got: %d", len(processedRecords))
-	}
-}
-
-func TestSplitJSONObjects_IncompleteEOF(t *testing.T) {
-	jsonData := `{"first":"1","last":"2"`
-	reader := strings.NewReader(jsonData)
-
-	var totalProcessed int32
-	err := StreamJSON(reader, func(records []models.NetflowRecord) {
-		atomic.AddInt32(&totalProcessed, int32(len(records)))
-	})
-
-	if err != nil {
-		t.Fatalf("Expected no error for incomplete JSON at EOF, got: %v", err)
-	}
-
-	if totalProcessed != 0 {
-		t.Fatalf("Expected 0 records, got: %d", totalProcessed)
-	}
-}
-
 func TestStreamNetflow_WorkerErrorHaltsProducer(t *testing.T) {
-	// A huge number of records with an invalid record in the middle.
-	// Non-NDJSON mode should halt immediately.
 	const numRecords = 2005
 	var builder strings.Builder
 	builder.WriteString("[\n")
 	validJSON := `{"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}`
-	
-	// First batch (1000 items) is completely valid
+
 	for i := 0; i < 1000; i++ {
 		builder.WriteString(validJSON)
 		builder.WriteString(",\n")
 	}
-	// Second batch has an invalid element early
 	builder.WriteString(`{INVALID_JSON_HERE}`)
 	builder.WriteString(",\n")
 
-	// Rest of the batches are valid
 	for i := 0; i < 1004; i++ {
 		builder.WriteString(validJSON)
 		if i < 1003 {
@@ -317,52 +283,14 @@ func TestStreamNetflow_WorkerErrorHaltsProducer(t *testing.T) {
 
 	reader := strings.NewReader(builder.String())
 
-	err := StreamJSON(reader, func(records []models.NetflowRecord) {
-		// Do nothing
-	})
+	err := StreamJSON(reader, func(records []models.NetflowRecord) {})
 
 	if err == nil {
 		t.Fatal("Expected an error due to invalid JSON halting scanner, got nil")
 	}
 }
 
-func TestStreamNetflow_EmptyAndNoiseInputs(t *testing.T) {
-	// Let's stream noise: commas, spaces, empty lines in standard and NDJSON.
-	// NDJSON with empty lines:
-	ndjsonData := "\n\n   \n,\n\n  ,\n"
-	reader := strings.NewReader(ndjsonData)
-
-	var totalProcessed int32
-	err := StreamNDJSON(reader, func(records []models.NetflowRecord) {
-		atomic.AddInt32(&totalProcessed, int32(len(records)))
-	})
-
-	if err != nil {
-		t.Fatalf("Expected no error for empty/noise NDJSON, got: %v", err)
-	}
-
-	if totalProcessed != 0 {
-		t.Fatalf("Expected 0 records, got: %d", totalProcessed)
-	}
-
-	// JSON with empty elements and noise:
-	jsonData := `[ , ,   , ]`
-	readerJSON := strings.NewReader(jsonData)
-
-	err = StreamJSON(readerJSON, func(records []models.NetflowRecord) {
-		atomic.AddInt32(&totalProcessed, int32(len(records)))
-	})
-
-	if err != nil {
-		t.Fatalf("Expected no error for empty/noise JSON array, got: %v", err)
-	}
-}
-
 func TestStreamNetflow_SequentialOrder(t *testing.T) {
-	// Generate 5000 records so we get multiple batches (since batchSize is 1000)
-	// Each batch of 1000 will be tagged with different packet numbers.
-	// Because of sequential ordering, batch 0 (packets 0) must be processed first,
-	// batch 1 (packets 1) second, etc., even under concurrency.
 	const numBatches = 5
 	const batchSize = 1000
 	var builder strings.Builder
@@ -383,11 +311,9 @@ func TestStreamNetflow_SequentialOrder(t *testing.T) {
 	err := StreamJSON(reader, func(records []models.NetflowRecord) {
 		if len(records) > 0 {
 			currentBatchID := records[0].InPackets
-			// Verify that the batch ID is strictly sequential and monotonic
 			if currentBatchID != lastBatchID+1 {
 				t.Errorf("Expected batch ID %d, but got %d (out of order!)", lastBatchID+1, currentBatchID)
 			}
-			// Verify that all records in the batch have the same batch ID
 			for _, r := range records {
 				if r.InPackets != currentBatchID {
 					t.Errorf("Expected record in_packets to be %d, got %d", currentBatchID, r.InPackets)
@@ -407,24 +333,18 @@ func TestStreamNetflow_SequentialOrder(t *testing.T) {
 }
 
 func TestStreamNetflow_MissingSequenceNoise(t *testing.T) {
-	// 1000 valid records (Sequence 0)
-	// 1000 noise lines (Sequence 1) which are trimmed to empty by worker
-	// 1000 valid records (Sequence 2)
 	const batchSize = 1000
 	var builder strings.Builder
 
 	validRecord := `{"first":"1","last":"2","in_packets":1,"in_bytes":10,"proto":6,"tcp_flags":"S","src_port":123,"dst_port":456,"src4_addr":"1.1.1.1","dst4_addr":"2.2.2.2"}`
-	
-	// Batch 0
+
 	for i := 0; i < batchSize; i++ {
 		builder.WriteString(validRecord)
 		builder.WriteByte('\n')
 	}
-	// Batch 1 (Noise)
 	for i := 0; i < batchSize; i++ {
 		builder.WriteString(",   \n")
 	}
-	// Batch 2
 	for i := 0; i < batchSize; i++ {
 		builder.WriteString(validRecord)
 		builder.WriteByte('\n')
@@ -441,9 +361,7 @@ func TestStreamNetflow_MissingSequenceNoise(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	// We expect exactly 2000 valid records to be processed (from batch 0 and batch 2)
 	if totalProcessed != 2*batchSize {
 		t.Fatalf("Expected %d records processed, but got %d (data was dropped!)", 2*batchSize, totalProcessed)
 	}
 }
-

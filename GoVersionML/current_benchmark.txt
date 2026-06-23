@@ -1,2 +1,12 @@
-﻿PASS
-ok  	goversion/main	0.427s
+﻿goos: windows
+goarch: amd64
+pkg: goversion/main
+cpu: AMD Ryzen 7 7800X3D 8-Core Processor           
+BenchmarkEndToEnd-16    	       2	 563549800 ns/op	86054064 B/op	  520741 allocs/op
+BenchmarkEndToEnd-16    	       2	 551044150 ns/op	50185916 B/op	  472031 allocs/op
+BenchmarkEndToEnd-16    	       2	 578347400 ns/op	50679288 B/op	  452344 allocs/op
+BenchmarkEndToEnd-16    	       2	 545478400 ns/op	48755260 B/op	  442373 allocs/op
+BenchmarkEndToEnd-16    	       2	 540287700 ns/op	47600600 B/op	  437237 allocs/op
+BenchmarkEndToEnd-16    	       2	 541927500 ns/op	50240044 B/op	  434128 allocs/op
+PASS
+ok  	goversion/main	10.473s

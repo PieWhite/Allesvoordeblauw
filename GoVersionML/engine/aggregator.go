@@ -1,7 +1,9 @@
+// aggregator.go implements sharded, concurrent accumulation of Netflow records
+// into per-IP, per-window statistics buckets. It uses a fixed 64-shard hash map
+// to minimize lock contention during high-throughput parallel ingestion.
 package engine
 
 import (
-	"hash/fnv"
 	"log"
 	"strings"
 	"sync"
@@ -14,14 +16,13 @@ import (
 const numShards = 64
 
 type WindowKey struct {
-	IP     string
+	IP     uint32
 	Window int64
 }
 
 type Shard struct {
 	sync.RWMutex
-	IPs map[WindowKey]*IPStats
-	ips map[string]string // IP intern cache
+	IPs map[uint64]*IPStats
 }
 
 type Aggregator struct {
@@ -33,32 +34,15 @@ func NewAggregator() *Aggregator {
 	a := &Aggregator{}
 	for i := 0; i < numShards; i++ {
 		a.shards[i] = &Shard{
-			IPs: make(map[WindowKey]*IPStats),
-			ips: make(map[string]string),
+			IPs: make(map[uint64]*IPStats),
 		}
 	}
 	return a
 }
 
-func (s *Shard) intern(ip string) string {
-	if cached, exists := s.ips[ip]; exists {
-		return cached
-	}
-	// Bounded size check to prevent memory leaks in long-running production pipelines.
-	// If the cache grows too large, we reset it. Active strings in shard.IPs will remain
-	// safely allocated and alive, while unused IPs will be naturally garbage-collected.
-	if len(s.ips) > 50000 {
-		s.ips = make(map[string]string)
-	}
-	safeIP := strings.Clone(ip)
-	s.ips[safeIP] = safeIP
-	return safeIP
-}
-
-func (a *Aggregator) getShardIndex(key WindowKey) int {
-	h := fnv.New32a()
-	h.Write([]byte(key.IP))
-	return int(h.Sum32()) & (numShards - 1)
+func (a *Aggregator) getShardIndex(ip uint32) int {
+	h := ip * 2654435761
+	return int(h >> 26)
 }
 
 func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
@@ -70,21 +54,51 @@ func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
 		minute := int(s[14]-'0')*10 + int(s[15]-'0')
 		second := int(s[17]-'0')*10 + int(s[18]-'0')
 		msec := int(s[20]-'0')*100 + int(s[21]-'0')*10 + int(s[22]-'0')
-		return time.Date(year, time.Month(month), day, hour, minute, second, msec*1000000, time.UTC), true
+
+		sec := fastUnixTime(year, month, day, hour, minute, second)
+		return time.Unix(sec, int64(msec)*1000000).UTC(), true
+	}
+
+	if len(s) >= 19 && s[4] == '-' && s[10] == ' ' {
+		year := int(s[0]-'0')*1000 + int(s[1]-'0')*100 + int(s[2]-'0')*10 + int(s[3]-'0')
+		month := int(s[5]-'0')*10 + int(s[6]-'0')
+		day := int(s[8]-'0')*10 + int(s[9]-'0')
+		hour := int(s[11]-'0')*10 + int(s[12]-'0')
+		minute := int(s[14]-'0')*10 + int(s[15]-'0')
+		second := int(s[17]-'0')*10 + int(s[18]-'0')
+		msec := 0
+		if len(s) >= 23 && s[19] == '.' {
+			msec = int(s[20]-'0')*100 + int(s[21]-'0')*10 + int(s[22]-'0')
+		}
+
+		sec := fastUnixTime(year, month, day, hour, minute, second)
+		return time.Unix(sec, int64(msec)*1000000).UTC(), true
 	}
 
 	t, err := time.Parse("2006-01-02T15:04:05.000", s)
-	if err != nil && a.timestampWarningLogged.CompareAndSwap(false, true) {
+	if err == nil {
+		return t, true
+	}
+
+	t, err = time.Parse("2006-01-02 15:04:05", s)
+	if err == nil {
+		return t, true
+	}
+
+	t, err = time.Parse("2006-01-02 15:04:05.000", s)
+	if err == nil {
+		return t, true
+	}
+
+	if a.timestampWarningLogged.CompareAndSwap(false, true) {
 		log.Printf("WARNING: failed to parse timestamp %q: %v (further warnings suppressed)", s, err)
 	}
-	return t, err == nil
+	return t, false
 }
 
-func getWindowKey(ip string, t time.Time) WindowKey {
-	return WindowKey{
-		IP:     ip,
-		Window: t.Truncate(5 * time.Minute).Unix(),
-	}
+func packKey(ip uint32, t time.Time) uint64 {
+	win := t.Unix() / 300 * 300
+	return (uint64(ip) << 32) | uint64(uint32(win))
 }
 
 func (a *Aggregator) Update(record models.NetflowRecord) {
@@ -94,47 +108,47 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 	}
 
 	if record.Src4Addr != "" {
-		key := getWindowKey(record.Src4Addr, first)
-		shardIdx := a.getShardIndex(key)
-		shard := a.shards[shardIdx]
+		srcIP, srcOk := ParseIPv4(record.Src4Addr)
+		if srcOk {
+			key := packKey(srcIP, first)
+			shardIdx := a.getShardIndex(srcIP)
+			shard := a.shards[shardIdx]
 
-		shard.Lock()
-		internedSrc := shard.intern(record.Src4Addr)
-		key.IP = internedSrc
+			dstIP, _ := ParseIPv4(record.Dst4Addr)
 
-		stats, exists := shard.IPs[key]
-		if !exists {
-			stats = NewIPStats()
-			stats.IP = internedSrc
-			shard.IPs[key] = stats
+			shard.Lock()
+			stats, exists := shard.IPs[key]
+			if !exists {
+				stats = NewIPStats()
+				stats.IP = srcIP
+				shard.IPs[key] = stats
+			}
+
+			a.updateOutboundStats(stats, record, first, dstIP)
+			shard.Unlock()
 		}
-
-		internedDst := shard.intern(record.Dst4Addr)
-		a.updateOutboundStats(stats, record, first, internedDst)
-		shard.Unlock()
 	}
 
 	if record.Dst4Addr != "" {
-		key := getWindowKey(record.Dst4Addr, first)
-		shardIdx := a.getShardIndex(key)
-		shard := a.shards[shardIdx]
+		dstIP, dstOk := ParseIPv4(record.Dst4Addr)
+		if dstOk {
+			key := packKey(dstIP, first)
+			shardIdx := a.getShardIndex(dstIP)
+			shard := a.shards[shardIdx]
 
-		shard.Lock()
-		internedDst := shard.intern(record.Dst4Addr)
-		key.IP = internedDst
-
-		stats, exists := shard.IPs[key]
-		if !exists {
-			stats = NewIPStats()
-			stats.IP = internedDst
-			shard.IPs[key] = stats
+			shard.Lock()
+			stats, exists := shard.IPs[key]
+			if !exists {
+				stats = NewIPStats()
+				stats.IP = dstIP
+				shard.IPs[key] = stats
+			}
+			updateInboundStats(stats, record)
+			shard.Unlock()
 		}
-		updateInboundStats(stats, record)
-		shard.Unlock()
 	}
 }
 
-// AllIPStats safely collects all IPStats across shards
 func (a *Aggregator) AllIPStats() []*IPStats {
 	var all []*IPStats
 	for i := 0; i < numShards; i++ {
@@ -148,23 +162,11 @@ func (a *Aggregator) AllIPStats() []*IPStats {
 	return all
 }
 
-func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time, internedDst string) {
+func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRecord, first time.Time, dstIP uint32) {
 	stats.FlowCount++
 
-	if stats.UniqueDstIPs == nil {
-		stats.UniqueDstIPs = make(map[string]struct{})
-	}
-	stats.UniqueDstIPs[internedDst] = struct{}{}
-
-	if stats.UniqueDstPorts == nil {
-		stats.UniqueDstPorts = make(map[int]struct{})
-	}
-	stats.UniqueDstPorts[record.DstPort] = struct{}{}
-
-	if stats.OutboundDstPorts == nil {
-		stats.OutboundDstPorts = make(map[int]struct{})
-	}
-	stats.OutboundDstPorts[record.DstPort] = struct{}{}
+	stats.AddUniqueDstIP(dstIP)
+	stats.AddUniqueDstPort(record.DstPort)
 
 	stats.TotalBytes += float64(record.InBytes)
 	stats.TotalPackets += float64(record.InPackets)
@@ -189,27 +191,16 @@ func (a *Aggregator) updateOutboundStats(stats *IPStats, record models.NetflowRe
 		stats.WellKnownPortCount++
 	}
 
-	a.updateTimingMetrics(stats, record, first, internedDst)
+	a.updateTimingMetrics(stats, record, first, dstIP)
 }
 
 func updateInboundStats(stats *IPStats, record models.NetflowRecord) {
-	if stats.InboundDstPorts == nil {
-		stats.InboundDstPorts = make(map[int]struct{})
-	}
-	stats.InboundDstPorts[record.DstPort] = struct{}{}
+	stats.AddInboundDstPort(record.DstPort)
 }
 
-func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord, first time.Time, internedDst string) {
-	tKey := TargetKey{IP: internedDst, Port: record.DstPort}
-	if s.TargetStartTimes == nil {
-		s.TargetStartTimes = make(map[TargetKey][]float64)
-	}
-
-	// This bounds the memory footprint and CPU sorting overhead, at the cost of approximating
-	// the Inter-Arrival Time (IAT) metrics for very high-volume targets.
-	if len(s.TargetStartTimes[tKey]) < 10 {
-		s.TargetStartTimes[tKey] = append(s.TargetStartTimes[tKey], float64(first.UnixNano())/1e9)
-	}
+func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord, first time.Time, dstIP uint32) {
+	tKey := TargetKey{IP: dstIP, Port: record.DstPort}
+	s.AddTargetStartTime(tKey, first)
 
 	if last, ok := a.parseTimestamp(record.Last); ok {
 		duration := last.Sub(first).Seconds()
@@ -220,14 +211,14 @@ func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord
 	}
 }
 
-// ExtractAndFlushBefore removes and returns all IPStats from windows older than the specified timestamp
 func (a *Aggregator) ExtractAndFlushBefore(window int64) []*IPStats {
 	var flushed []*IPStats
 	for i := 0; i < numShards; i++ {
 		shard := a.shards[i]
 		shard.Lock()
 		for key, stats := range shard.IPs {
-			if key.Window < window {
+			win := int64(uint32(key))
+			if win < window {
 				flushed = append(flushed, stats)
 				delete(shard.IPs, key)
 			}
@@ -237,7 +228,6 @@ func (a *Aggregator) ExtractAndFlushBefore(window int64) []*IPStats {
 	return flushed
 }
 
-// FlushAll removes and returns all IPStats currently in the aggregator, leaving it completely empty.
 func (a *Aggregator) FlushAll() []*IPStats {
 	var flushed []*IPStats
 	for i := 0; i < numShards; i++ {
@@ -247,8 +237,38 @@ func (a *Aggregator) FlushAll() []*IPStats {
 			flushed = append(flushed, stats)
 			delete(shard.IPs, key)
 		}
-		shard.ips = make(map[string]string) // clear intern cache as well
 		shard.Unlock()
 	}
 	return flushed
+}
+
+func (a *Aggregator) NumActiveKeys() int {
+	var count int
+	for i := 0; i < numShards; i++ {
+		shard := a.shards[i]
+		shard.RLock()
+		count += len(shard.IPs)
+		shard.RUnlock()
+	}
+	return count
+}
+
+func (a *Aggregator) Merge(other *Aggregator) {
+	for i := 0; i < numShards; i++ {
+		shard := a.shards[i]
+		otherShard := other.shards[i]
+
+		otherShard.Lock()
+		for key, otherStats := range otherShard.IPs {
+			shard.Lock()
+			stats, exists := shard.IPs[key]
+			if !exists {
+				shard.IPs[key] = otherStats
+			} else {
+				stats.Merge(otherStats)
+			}
+			shard.Unlock()
+		}
+		otherShard.Unlock()
+	}
 }

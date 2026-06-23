@@ -1,200 +1,181 @@
+// detector.go orchestrates botnet detection by processing Netflow records
+// through time-windowed aggregation and XGBoost model evaluation. It manages
+// the detection lifecycle including record ingestion, worker pool coordination,
+// and detector cloning for concurrent file processing.
 package engine
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
-	"time"
 
+	"goversion/config"
 	"goversion/models"
-
-	xgboost "github.com/Elvenson/xgboost-go"
-	"github.com/Elvenson/xgboost-go/activation"
-	"github.com/Elvenson/xgboost-go/mat"
 )
 
-type XGBoostModel interface {
-	PredictProba(input mat.SparseMatrix) (mat.Matrix, error)
+type BenignIPInfo struct {
+	IP   uint32
+	Prob float64
 }
 
-type Detector struct {
-	TotalRecords int64
-	aggregator   *Aggregator
-	model        XGBoostModel
+var OnRecordsAggregated func(delta int64)
+var OnWindowsInferred func(delta int64)
 
-	maxProbs      map[string]float64
-	maxFeatures   map[string][]float64
-	explainer     *Explainer
-	probMutex     sync.Mutex
-	currentWindow atomic.Int64
+type Detector struct {
+	TotalRecords     int64
+	windowManager    *NetflowWindowManager
+	model            *FastXGBoost
+	maxProbs         map[uint32]float64
+	maxFeatures      map[uint32][]float64
+	topBenign        []BenignIPInfo
+	explainer        *Explainer
+	probMutex        sync.Mutex
+	Subnet           string
+	SeenIPs          *HyperLogLog
+	evalWg           sync.WaitGroup
+	completedWindows chan []*IPStats
 }
 
 func NewDetector(modelPath string) (*Detector, error) {
-	loadedModel, err := xgboost.LoadXGBoostFromJSON(modelPath, "", 1, 6, &activation.Logistic{})
+	loadedModel, err := GetOrLoadModel(modelPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load model: %w", err)
 	}
 
-	explainer, err := NewExplainer(modelPath, FeatureNames)
+	explainer, err := GetOrLoadExplainer(modelPath, FeatureNames)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize explainer: %w", err)
 	}
 
-	return &Detector{
-		aggregator:  NewAggregator(),
-		model:       loadedModel,
-		maxProbs:    make(map[string]float64),
-		maxFeatures: make(map[string][]float64),
-		explainer:   explainer,
-	}, nil
+	d := &Detector{
+		windowManager: NewNetflowWindowManager(WindowFlushPolicy{Mode: WindowFlushAssumeOrdered}),
+		model:         loadedModel,
+		maxProbs:      make(map[uint32]float64),
+		maxFeatures:   make(map[uint32][]float64),
+		topBenign:     make([]BenignIPInfo, 0, 10),
+		explainer:     explainer,
+		SeenIPs:       NewHyperLogLog(14),
+	}
+	d.startWorkers()
+	return d, nil
+}
+
+func (d *Detector) startWorkers() {
+	d.completedWindows = make(chan []*IPStats, 100)
+	for i := 0; i < 8; i++ {
+		d.evalWg.Add(1)
+		go func() {
+			defer d.evalWg.Done()
+			for batch := range d.completedWindows {
+				d.evaluateBatch(batch)
+			}
+		}()
+	}
+}
+
+func (d *Detector) Clone() *Detector {
+	clone := &Detector{
+		windowManager: NewNetflowWindowManager(d.windowManager.policy),
+		model:         d.model,
+		maxProbs:      make(map[uint32]float64),
+		maxFeatures:   make(map[uint32][]float64),
+		topBenign:     make([]BenignIPInfo, 0, 10),
+		explainer:     d.explainer,
+		SeenIPs:       NewHyperLogLog(14),
+		Subnet:        d.Subnet,
+	}
+	clone.startWorkers()
+	return clone
+}
+
+func (d *Detector) Merge(other *Detector) {
+	d.probMutex.Lock()
+	defer d.probMutex.Unlock()
+	other.probMutex.Lock()
+	defer other.probMutex.Unlock()
+
+	atomic.AddInt64(&d.TotalRecords, other.TotalRecords)
+
+	if other.SeenIPs != nil && d.SeenIPs != nil {
+		d.SeenIPs.Merge(other.SeenIPs)
+	}
+
+	d.windowManager.aggregator.Merge(other.windowManager.aggregator)
+
+	for ip, prob := range other.maxProbs {
+		if currentMax, exists := d.maxProbs[ip]; !exists || prob > currentMax {
+			d.maxProbs[ip] = prob
+			d.maxFeatures[ip] = other.maxFeatures[ip]
+		}
+	}
+
+	for _, info := range other.topBenign {
+		if _, exists := d.maxProbs[info.IP]; !exists {
+			d.updateTopBenign(info.IP, info.Prob, nil, other.maxFeatures[info.IP])
+		}
+	}
 }
 
 func (d *Detector) ProcessRecord(record models.NetflowRecord) {
+	if d.Subnet != "" && !config.MatchSubnet(record.Src4Addr, d.Subnet) && !config.MatchSubnet(record.Dst4Addr, d.Subnet) {
+		return
+	}
 	atomic.AddInt64(&d.TotalRecords, 1)
-	d.aggregator.Update(record)
+	d.windowManager.aggregator.Update(record)
 }
 
-// TotalCount returns the total number of records processed.
-// This allows Detector to satisfy the pipeline.RecordProcessor interface.
 func (d *Detector) TotalCount() int64 {
 	return atomic.LoadInt64(&d.TotalRecords)
 }
 
 func (d *Detector) ProcessRecords(records []models.NetflowRecord) {
-	atomic.AddInt64(&d.TotalRecords, int64(len(records)))
+	var matchedCount int64
+	var matchedRecords []models.NetflowRecord
 
-	var localMaxWindow int64
-
-	for _, record := range records {
-		d.aggregator.Update(record)
-
-		// Quickly sniff the timestamp for flushing logic
-		if len(record.First) >= 23 && record.First[4] == '-' && record.First[10] == 'T' {
-			s := record.First
-			year := int(s[0]-'0')*1000 + int(s[1]-'0')*100 + int(s[2]-'0')*10 + int(s[3]-'0')
-			month := int(s[5]-'0')*10 + int(s[6]-'0')
-			day := int(s[8]-'0')*10 + int(s[9]-'0')
-			hour := int(s[11]-'0')*10 + int(s[12]-'0')
-			minute := int(s[14]-'0')*10 + int(s[15]-'0')
-			second := int(s[17]-'0')*10 + int(s[18]-'0')
-
-			t := time.Date(year, time.Month(month), day, hour, minute, second, 0, time.UTC)
-			win := t.Truncate(5 * time.Minute).Unix()
-			if win > localMaxWindow {
-				localMaxWindow = win
+	if d.Subnet != "" {
+		matchedRecords = make([]models.NetflowRecord, 0, len(records))
+		for _, record := range records {
+			if !config.MatchSubnet(record.Src4Addr, d.Subnet) && !config.MatchSubnet(record.Dst4Addr, d.Subnet) {
+				continue
 			}
+			matchedCount++
+			matchedRecords = append(matchedRecords, record)
 		}
+	} else {
+		matchedCount = int64(len(records))
+		matchedRecords = records
 	}
 
-	if localMaxWindow > 0 {
-		d.updateMaxWindowAndFlush(localMaxWindow)
+	atomic.AddInt64(&d.TotalRecords, matchedCount)
+	if matchedCount > 0 && OnRecordsAggregated != nil {
+		OnRecordsAggregated(matchedCount)
+	}
+
+	if len(matchedRecords) > 0 {
+		flushed := d.windowManager.ProcessRecords(matchedRecords)
+		if len(flushed) > 0 && d.completedWindows != nil {
+			d.completedWindows <- flushed
+		}
 	}
 }
 
-func (d *Detector) updateMaxWindowAndFlush(win int64) {
-	curr := d.currentWindow.Load()
-	for win > curr {
-		if d.currentWindow.CompareAndSwap(curr, win) {
-			// We advanced the global maximum window.
-			// Flush data older than (maxWindow - 5 minutes)
-			d.flushOldWindows(win - 300)
-			break
-		}
-		curr = d.currentWindow.Load()
+func (d *Detector) Wait() {
+	d.evalWg.Wait()
+}
+
+func (d *Detector) Close() {
+	if d.completedWindows != nil {
+		close(d.completedWindows)
 	}
 }
 
-func (d *Detector) flushOldWindows(threshold int64) {
-	flushed := d.aggregator.ExtractAndFlushBefore(threshold)
-	if len(flushed) == 0 {
-		return
-	}
-
-	d.evaluateBatch(flushed)
-}
-
-func (d *Detector) evaluateBatch(statsBatch []*IPStats) {
-	if len(statsBatch) == 0 {
-		return
-	}
-
-	vectors := make([]mat.SparseVector, len(statsBatch))
-	for idx, stats := range statsBatch {
-		features := stats.ToMLVector()
-		sv := make(mat.SparseVector)
-		for i, val := range features {
-			if val != 0 {
-				sv[i] = float32(val)
-			}
-		}
-		vectors[idx] = sv
-	}
-
-	input := mat.SparseMatrix{
-		Vectors: vectors,
-	}
-
-	preds, err := d.model.PredictProba(input)
-	if err != nil {
-		log.Printf("Error in batch prediction: %v", err)
-		return
-	}
-
-	d.probMutex.Lock()
-	if d.maxProbs == nil {
-		d.maxProbs = make(map[string]float64)
-	}
-	if d.maxFeatures == nil {
-		d.maxFeatures = make(map[string][]float64)
-	}
-	for idx, vPtr := range preds.Vectors {
-		if vPtr == nil || len(*vPtr) == 0 {
-			continue
-		}
-		prob := float64((*vPtr)[0])
-		ip := statsBatch[idx].IP
-
-		if currentMax, exists := d.maxProbs[ip]; !exists || prob > currentMax {
-			d.maxProbs[ip] = prob
-			d.maxFeatures[ip] = statsBatch[idx].ToMLVector()
-		}
-	}
-	d.probMutex.Unlock()
+func (d *Detector) SetWindowFlushMode(mode WindowFlushMode) {
+	d.windowManager.policy.Mode = mode
 }
 
 func (d *Detector) Flush() {
-	flushed := d.aggregator.FlushAll()
-	if len(flushed) > 0 {
-		d.evaluateBatch(flushed)
+	flushed := d.windowManager.FlushFinal()
+	if len(flushed) > 0 && d.completedWindows != nil {
+		d.completedWindows <- flushed
 	}
-}
-
-func (d *Detector) CalculateResults() []models.MLResult {
-	d.Flush()
-
-	d.probMutex.Lock()
-	defer d.probMutex.Unlock()
-	return d.formatResults(d.maxProbs)
-}
-
-func (d *Detector) formatResults(probs map[string]float64) []models.MLResult {
-	const threshold = 0.50
-	results := make([]models.MLResult, 0, len(probs))
-	for ip, prob := range probs {
-		var expl string
-		if prob > threshold && d.explainer != nil {
-			if feats, ok := d.maxFeatures[ip]; ok {
-				expl = d.explainer.FormatExplanation(feats)
-			}
-		}
-		results = append(results, models.MLResult{
-			IP:          ip,
-			Probability: prob * 100.0,
-			IsBotnet:    prob > threshold,
-			Explanation: expl,
-		})
-	}
-
-	return results
 }

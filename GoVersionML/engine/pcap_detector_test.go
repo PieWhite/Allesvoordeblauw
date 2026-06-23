@@ -72,7 +72,7 @@ func TestPcapDetector_ProcessAndFlush(t *testing.T) {
 	})
 
 	// Calling CalculateResults should trigger Flush and evaluate all batches
-	results := detector.CalculateResults()
+	results, _ := detector.CalculateResults()
 
 	// Verify we got results back
 	if len(results) == 0 {

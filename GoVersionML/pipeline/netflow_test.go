@@ -1,3 +1,7 @@
+/*
+Package pipeline contains unit tests for streaming, parsing, and pipeline orchestration
+for Netflow network log records.
+*/
 package pipeline
 
 import (
@@ -9,10 +13,12 @@ import (
 	"strings"
 	"testing"
 
+	"goversion/config"
+	"goversion/engine"
 	"goversion/models"
+	"goversion/scanner"
 )
 
-// mockProcessor implements RecordProcessor for testing
 type mockProcessor struct {
 	recordsProcessed []models.NetflowRecord
 	results          []models.MLResult
@@ -27,8 +33,8 @@ func (m *mockProcessor) ProcessRecords(records []models.NetflowRecord) {
 	m.total += int64(len(records))
 }
 
-func (m *mockProcessor) CalculateResults() []models.MLResult {
-	return m.results
+func (m *mockProcessor) CalculateResults() ([]models.MLResult, int) {
+	return m.results, len(m.results)
 }
 
 func (m *mockProcessor) TotalCount() int64 {
@@ -46,7 +52,7 @@ func TestExecute(t *testing.T) {
 			return nil
 		}
 
-		results, count, err := execute(nil, processor, streamFn)
+		results, _, count, err := execute(nil, processor, streamFn)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -72,7 +78,7 @@ func TestExecute(t *testing.T) {
 			return expectedErr
 		}
 
-		results, count, err := execute(nil, processor, streamFn)
+		results, _, count, err := execute(nil, processor, streamFn)
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -92,7 +98,7 @@ func TestExecute(t *testing.T) {
 
 	t.Run("NilStream", func(t *testing.T) {
 		processor := &mockProcessor{}
-		_, _, err := execute(nil, processor, nil)
+		_, _, _, err := execute(nil, processor, nil)
 		if err == nil {
 			t.Fatalf("expected error for nil stream, got nil")
 		}
@@ -200,15 +206,14 @@ func TestAnalyzeFile(t *testing.T) {
 	}
 
 	t.Run("InvalidModelPath", func(t *testing.T) {
-		_, _, err := AnalyzeFile("dummy.json", "invalid/path/to/model.json", mockScanner)
+		_, _, _, err := AnalyzeFile(&config.AppConfig{InputPath: "dummy.json"}, "invalid/path/to/model.json", mockScanner)
 		if err == nil {
 			t.Fatalf("expected error for invalid model path, got nil")
 		}
 	})
 
 	t.Run("InvalidInputPath", func(t *testing.T) {
-		// Valid model, but invalid input file
-		_, _, err := AnalyzeFile("nonexistent_input.json", validModel, mockScanner)
+		_, _, _, err := AnalyzeFile(&config.AppConfig{InputPath: "nonexistent_input.json"}, validModel, mockScanner)
 		if err == nil {
 			t.Fatalf("expected error for missing input file, got nil")
 		}
@@ -218,31 +223,26 @@ func TestAnalyzeFile(t *testing.T) {
 	})
 
 	t.Run("ValidFileAndModel", func(t *testing.T) {
-		// Create a temporary input file
 		tempFile, err := os.CreateTemp("", "test_input_*.json")
 		if err != nil {
 			t.Fatalf("failed to create temp file: %v", err)
 		}
 		defer os.Remove(tempFile.Name())
 
-		// We can just write an empty JSON array or a small record
 		_, err = tempFile.WriteString(`{"first": "2026-05-02T15:04:05.000", "last": "2026-05-02T15:05:05.000", "src4_addr": "1.2.3.4"}`)
 		if err != nil {
 			t.Fatalf("failed to write to temp file: %v", err)
 		}
 		tempFile.Close()
 
-		// Test success execution
-		// Note: since this does actual ML inference setup, it may return some empty result or an error based on the ML engine if it expects specific format
-		_, _, err = AnalyzeFile(tempFile.Name(), validModel, mockScanner)
-
+		_, _, _, err = AnalyzeFile(&config.AppConfig{InputPath: tempFile.Name()}, validModel, mockScanner)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("NilStream", func(t *testing.T) {
-		_, _, err := AnalyzeFile("dummy.json", validModel, nil)
+		_, _, _, err := AnalyzeFile(&config.AppConfig{InputPath: "dummy.json"}, validModel, nil)
 		if err == nil {
 			t.Fatalf("expected error for nil stream, got nil")
 		}
@@ -250,4 +250,52 @@ func TestAnalyzeFile(t *testing.T) {
 			t.Errorf("expected 'stream function cannot be nil' error, got: %v", err)
 		}
 	})
+}
+
+func TestProcessFile_ParallelCSV(t *testing.T) {
+	validModel := "../Xgboost/botnet_xgboost.json"
+	detector, err := engine.NewDetector(validModel)
+	if err != nil {
+		t.Fatalf("failed to load model: %v", err)
+	}
+
+	tempFile, err := os.CreateTemp("", "test_input_*.csv")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	csvContent := `ts,te,sa,da,sp,dp,pr,flg,ipkt,ibyt
+2026-05-02T15:04:05.000,2026-05-02T15:05:05.000,1.2.3.4,5.6.7.8,80,443,6,A,10,1000
+2026-05-02T15:04:06.000,2026-05-02T15:05:06.000,1.2.3.4,5.6.7.8,80,443,6,A,20,2000
+`
+	if _, err := tempFile.WriteString(csvContent); err != nil {
+		t.Fatalf("failed to write to temp file: %v", err)
+	}
+	tempFile.Close()
+
+	count, err := ProcessFile(tempFile.Name(), detector, scanner.StreamCSV)
+	if err != nil {
+		t.Fatalf("expected no error in parallel CSV parsing, got %v", err)
+	}
+
+	if count != 2 {
+		t.Errorf("expected count 2, got %d", count)
+	}
+
+	results, uniqueIPs := detector.CalculateResults()
+	if uniqueIPs < 1 {
+		t.Errorf("expected at least 1 unique IP, got %d", uniqueIPs)
+	}
+
+	found := false
+	for _, r := range results {
+		if r.IP == "1.2.3.4" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected IP 1.2.3.4 in results, but was not found")
+	}
 }

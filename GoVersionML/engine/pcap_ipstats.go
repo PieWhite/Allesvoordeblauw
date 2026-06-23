@@ -2,7 +2,6 @@ package engine
 
 import (
 	"math"
-	"sort"
 	"strings"
 
 	"goversion/models"
@@ -10,14 +9,15 @@ import (
 
 // PcapIPStats accumulates packet-level characteristics for a specific IP and window
 type PcapIPStats struct {
-	IP          string
-	Window      int64
-	PacketCount int
-	TotalLength float64
-	MinLength   float64
-	MaxLength   float64
-	Lengths     []float64
-	Timestamps  []float64
+	IP           uint32
+	PacketCount  int
+	TotalLength  float64
+	MinLength    float64
+	MaxLength    float64
+	LengthMean   float64
+	LengthM2     float64
+	MinTimestamp float64
+	MaxTimestamp float64
 
 	// TCP Flag Counts
 	FinCount int
@@ -47,14 +47,13 @@ type PcapIPStats struct {
 	LLCCount    int
 }
 
-func NewPcapIPStats(ip string, window int64) *PcapIPStats {
+func NewPcapIPStats(ip uint32, window int64) *PcapIPStats {
 	return &PcapIPStats{
-		IP:          ip,
-		Window:      window,
-		MinLength:   math.MaxFloat64,
-		MaxLength:   -math.MaxFloat64,
-		Lengths:     make([]float64, 0, 100),
-		Timestamps:  make([]float64, 0, 100),
+		IP:           ip,
+		MinLength:    math.MaxFloat64,
+		MaxLength:    -math.MaxFloat64,
+		MinTimestamp: math.MaxFloat64,
+		MaxTimestamp: -math.MaxFloat64,
 	}
 }
 
@@ -63,14 +62,26 @@ func (s *PcapIPStats) Update(record models.PcapRecord, isOutbound bool) {
 	s.PacketCount++
 	length := float64(record.Length)
 	s.TotalLength += length
-	s.Lengths = append(s.Lengths, length)
-	s.Timestamps = append(s.Timestamps, record.Timestamp)
 
 	if length < s.MinLength {
 		s.MinLength = length
 	}
 	if length > s.MaxLength {
 		s.MaxLength = length
+	}
+
+	// Welford's algorithm for online variance
+	count := float64(s.PacketCount)
+	delta := length - s.LengthMean
+	s.LengthMean += delta / count
+	delta2 := length - s.LengthMean
+	s.LengthM2 += delta * delta2
+
+	if record.Timestamp < s.MinTimestamp {
+		s.MinTimestamp = record.Timestamp
+	}
+	if record.Timestamp > s.MaxTimestamp {
+		s.MaxTimestamp = record.Timestamp
 	}
 
 	// 1. TCP Flags
@@ -142,15 +153,19 @@ func (s *PcapIPStats) Update(record models.PcapRecord, isOutbound bool) {
 	}
 }
 
-// ToPcapMLVector computes the final 39 statistical and protocol features of the CICIoT2023 schema
-func (s *PcapIPStats) ToPcapMLVector() []float64 {
+// FillPcapMLVector populates a preallocated slice (must be length 39) with CICIoT2023 features.
+func (s *PcapIPStats) FillPcapMLVector(features []float64) {
+	_ = features[38] // Bounds check elimination
+
 	fc := float64(s.PacketCount)
 	if fc == 0 {
-		return make([]float64, 39)
+		for i := 0; i < 39; i++ {
+			features[i] = 0
+		}
+		return
 	}
 
 	// A. Header Length and TTL defaults
-	// Header Length: Mean transport layer header size (TCP=20, UDP=8, ICMP=8)
 	headerSum := float64(s.TCPCount)*20.0 + float64(s.UDPCount+s.ICMPCount)*8.0
 	avgHeaderLen := headerSum / fc
 	avgTTL := 64.0 // fallback: Mirai/Linux standard default TTL
@@ -161,43 +176,27 @@ func (s *PcapIPStats) ToPcapMLVector() []float64 {
 	// B. Transmission Rate
 	var rate float64
 	var iatMean float64
-	var iat []float64
 
-	if len(s.Timestamps) > 1 {
-		sort.Float64s(s.Timestamps)
-		duration := s.Timestamps[len(s.Timestamps)-1] - s.Timestamps[0]
+	if s.PacketCount > 1 {
+		duration := s.MaxTimestamp - s.MinTimestamp
 		if duration > 0 {
 			rate = fc / duration
 		}
 
-		iat = make([]float64, len(s.Timestamps)-1)
-		var iatSum float64
-		for i := 1; i < len(s.Timestamps); i++ {
-			diff := s.Timestamps[i] - s.Timestamps[i-1]
-			if diff < 0 {
-				diff = 0
-			}
-			iat[i-1] = diff
-			iatSum += diff
+		iatSum := s.MaxTimestamp - s.MinTimestamp
+		if iatSum < 0 {
+			iatSum = 0
 		}
-		iatMean = iatSum / float64(len(iat))
+		iatMean = iatSum / float64(s.PacketCount-1)
 	}
 
 	// C. Packet Length Statistics
-	var lengthSum float64
-	for _, l := range s.Lengths {
-		lengthSum += l
-	}
-	avgLength := lengthSum / fc
+	avgLength := s.TotalLength / fc
 
 	var lengthVar float64
 	var lengthStd float64
-	if len(s.Lengths) > 1 {
-		var sumSq float64
-		for _, l := range s.Lengths {
-			sumSq += (l - avgLength) * (l - avgLength)
-		}
-		lengthVar = sumSq / float64(len(s.Lengths)-1) // ddof=1 sample variance
+	if s.PacketCount > 1 {
+		lengthVar = s.LengthM2 / float64(s.PacketCount-1)
 		lengthStd = math.Sqrt(lengthVar)
 	}
 
@@ -225,46 +224,50 @@ func (s *PcapIPStats) ToPcapMLVector() []float64 {
 		maxL = 0
 	}
 
-	// Build and return the vector — order matches CICIoT2023 extracted features
-	return []float64{
-		avgHeaderLen,                       // 1:  Header Length
-		avgTTL,                             // 2:  Time-To-Live
-		rate,                               // 3:  Rate
-		float64(s.FinCount) / fc,           // 4:  fin flag number
-		float64(s.SynCount) / fc,           // 5:  syn flag number
-		float64(s.RstCount) / fc,           // 6:  rst flag number
-		float64(s.PshCount) / fc,           // 7:  psh flag number
-		float64(s.AckCount) / fc,           // 8:  ack flag number
-		float64(s.EceCount) / fc,           // 9:  ece flag number
-		float64(s.CwrCount) / fc,           // 10: cwr flag number
-		float64(s.SynCount),                // 11: syn count
-		float64(s.AckCount),                // 12: ack count
-		float64(s.FinCount),                // 13: fin count
-		float64(s.RstCount),                // 14: rst count
-		float64(s.IGMPCount) / fc,          // 15: IGMP
-		float64(s.HTTPSCount) / fc,         // 16: HTTPS
-		float64(s.HTTPCount) / fc,          // 17: HTTP
-		float64(s.TelnetCount) / fc,        // 18: Telnet
-		float64(s.DNSCount) / fc,           // 19: DNS
-		float64(s.SMTPCount) / fc,          // 20: SMTP
-		float64(s.SSHCount) / fc,           // 21: SSH
-		float64(s.IRCCount) / fc,           // 22: IRC
-		float64(s.TCPCount) / fc,           // 23: TCP
-		float64(s.UDPCount) / fc,           // 24: UDP
-		float64(s.DHCPCount) / fc,          // 25: DHCP
-		float64(s.ARPCount) / fc,           // 26: ARP
-		float64(s.ICMPCount) / fc,          // 27: ICMP
-		float64(s.IPvCount) / fc,           // 28: IPv
-		float64(s.LLCCount) / fc,           // 29: LLC
-		s.TotalLength,                      // 30: Tot Sum
-		minL,                               // 31: Min
-		maxL,                               // 32: Max
-		avgLength,                          // 33: AVG
-		lengthStd,                          // 34: Std
-		avgLength,                          // 35: Tot Size (Average packet length)
-		iatMean,                            // 36: IAT
-		fc,                                 // 37: Number
-		lengthVar,                          // 38: Variance
-		modeProto,                          // 39: Protocol Type
-	}
+	features[0] = avgHeaderLen
+	features[1] = avgTTL
+	features[2] = rate
+	features[3] = float64(s.FinCount) / fc
+	features[4] = float64(s.SynCount) / fc
+	features[5] = float64(s.RstCount) / fc
+	features[6] = float64(s.PshCount) / fc
+	features[7] = float64(s.AckCount) / fc
+	features[8] = float64(s.EceCount) / fc
+	features[9] = float64(s.CwrCount) / fc
+	features[10] = float64(s.SynCount)
+	features[11] = float64(s.AckCount)
+	features[12] = float64(s.FinCount)
+	features[13] = float64(s.RstCount)
+	features[14] = float64(s.IGMPCount) / fc
+	features[15] = float64(s.HTTPSCount) / fc
+	features[16] = float64(s.HTTPCount) / fc
+	features[17] = float64(s.TelnetCount) / fc
+	features[18] = float64(s.DNSCount) / fc
+	features[19] = float64(s.SMTPCount) / fc
+	features[20] = float64(s.SSHCount) / fc
+	features[21] = float64(s.IRCCount) / fc
+	features[22] = float64(s.TCPCount) / fc
+	features[23] = float64(s.UDPCount) / fc
+	features[24] = float64(s.DHCPCount) / fc
+	features[25] = float64(s.ARPCount) / fc
+	features[26] = float64(s.ICMPCount) / fc
+	features[27] = float64(s.IPvCount) / fc
+	features[28] = float64(s.LLCCount) / fc
+	features[29] = s.TotalLength
+	features[30] = minL
+	features[31] = maxL
+	features[32] = avgLength
+	features[33] = lengthStd
+	features[34] = avgLength
+	features[35] = iatMean
+	features[36] = fc
+	features[37] = lengthVar
+	features[38] = modeProto
+}
+
+// ToPcapMLVector computes the final 39 statistical and protocol features of the CICIoT2023 schema
+func (s *PcapIPStats) ToPcapMLVector() []float64 {
+	vec := make([]float64, 39)
+	s.FillPcapMLVector(vec)
+	return vec
 }

@@ -1,3 +1,7 @@
+/*
+Package pipeline contains unit tests for testing directory scanning,
+mixed input classification, user prompts, and parallel batch orchestrator logic.
+*/
 package pipeline
 
 import (
@@ -14,44 +18,44 @@ func TestRunPipelineForInput(t *testing.T) {
 	tempDir := t.TempDir()
 
 	tests := []struct {
-		name      string
-		filename  string
-		wantErr   string
+		name     string
+		filename string
+		wantErr  string
 	}{
 		{
-			name:      "Empty Extension",
-			filename:  "file_without_ext",
-			wantErr:   "unsupported file extension:",
+			name:     "Empty Extension",
+			filename: "file_without_ext",
+			wantErr:  "unsupported file extension:",
 		},
 		{
-			name:      "Unsupported Extension",
-			filename:  "file.txt",
-			wantErr:   "unsupported file extension: .txt",
+			name:     "Unsupported Extension",
+			filename: "file.txt",
+			wantErr:  "unsupported file extension: .txt",
 		},
 		{
-			name:      "PCAP Extension",
-			filename:  "capture.pcap",
-			wantErr:   "failed loading xgboost model",
+			name:     "PCAP Extension",
+			filename: "capture.pcap",
+			wantErr:  "failed loading xgboost model",
 		},
 		{
-			name:      "JSON Extension with missing model",
-			filename:  "data.json",
-			wantErr:   "failed loading xgboost model",
+			name:     "JSON Extension with missing model",
+			filename: "data.json",
+			wantErr:  "failed loading xgboost model",
 		},
 		{
-			name:      "NDJSON Extension with missing model",
-			filename:  "data.ndjson",
-			wantErr:   "failed loading xgboost model",
+			name:     "NDJSON Extension with missing model",
+			filename: "data.ndjson",
+			wantErr:  "failed loading xgboost model",
 		},
 		{
-			name:      "Uppercase PCAP Extension",
-			filename:  "CAPTURE.PCAP",
-			wantErr:   "failed loading xgboost model",
+			name:     "Uppercase PCAP Extension",
+			filename: "CAPTURE.PCAP",
+			wantErr:  "failed loading xgboost model",
 		},
 		{
-			name:      "Uppercase JSON Extension",
-			filename:  "DATA.JSON",
-			wantErr:   "failed loading xgboost model",
+			name:     "Uppercase JSON Extension",
+			filename: "DATA.JSON",
+			wantErr:  "failed loading xgboost model",
 		},
 	}
 
@@ -77,7 +81,7 @@ func TestRunPipelineForInput(t *testing.T) {
 				InputPath: path,
 			}
 
-			_, _, err = RunPipelineForInput(cfg)
+			_, _, _, err = RunPipelineForInput(cfg)
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
 			}
@@ -161,6 +165,16 @@ func TestConfirmDirectoryParseMixedFlow(t *testing.T) {
 			t.Fatalf("expected cancellation error, got %v", err)
 		}
 	})
+
+	t.Run("AcceptCSVOnly", func(t *testing.T) {
+		mockStdinWithInput(t, "yes\n")
+		cfCSV := classifiedFiles{
+			csv: []string{"a.csv"},
+		}
+		if err := confirmDirectoryParse(cfCSV); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	})
 }
 
 func TestProcessBatchErrorHandling(t *testing.T) {
@@ -174,12 +188,32 @@ func TestProcessBatchErrorHandling(t *testing.T) {
 		NetflowModelPath = originalNetflow
 	})
 
-	_, _, err := processBatch(cf, 1)
+	_, _, _, err := processBatch(&config.AppConfig{}, cf, 1)
 	if err == nil {
 		t.Fatal("expected model loading error, got nil")
 	}
 	if !strings.Contains(err.Error(), "failed loading xgboost model") {
 		t.Fatalf("expected wrapped model load error, got %v", err)
+	}
+}
+
+func TestProcessBatchCSVErrorHandling(t *testing.T) {
+	cf := classifiedFiles{
+		csv: []string{"a.csv"},
+	}
+
+	originalNetflow := NetflowModelPath
+	NetflowModelPath = "missing-model.json"
+	t.Cleanup(func() {
+		NetflowModelPath = originalNetflow
+	})
+
+	_, _, _, err := processBatch(&config.AppConfig{}, cf, 1)
+	if err == nil {
+		t.Fatal("expected model loading error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed loading xgboost model for Netflow") {
+		t.Fatalf("expected wrapped Netflow model load error, got %v", err)
 	}
 }
 

@@ -7,7 +7,8 @@ import (
 )
 
 func TestPcapIPStats_UpdateAndFeatures(t *testing.T) {
-	stats := NewPcapIPStats("192.168.1.50", 1680000000)
+	ipVal, _ := ParseIPv4("192.168.1.50")
+	stats := NewPcapIPStats(ipVal, 1680000000)
 
 	// Add 3 mock packets
 	// Packet 1: TCP Syn, Length 100, DstPort 80 (HTTP outbound)
