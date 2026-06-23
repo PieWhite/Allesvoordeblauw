@@ -227,7 +227,7 @@ func Start() (string, error) {
 	defer log.SetOutput(originalLogOutput)
 
 	m := NewModel()
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, ProgramOptions...)
 	finalModel, err := p.Run()
 	if err != nil {
 		return "", err
