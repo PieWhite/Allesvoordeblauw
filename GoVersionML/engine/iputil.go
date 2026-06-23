@@ -1,9 +1,9 @@
+// iputil.go provides zero-allocation IPv4 address parsing and formatting
+// utilities operating on uint32 representations.
 package engine
 
 import "fmt"
 
-// ParseIPv4 converts a dotted-decimal IPv4 string to a uint32.
-// Returns 0, false for invalid or empty input.
 func ParseIPv4(s string) (uint32, bool) {
 	if len(s) == 0 {
 		return 0, false
@@ -40,7 +40,6 @@ func ParseIPv4(s string) (uint32, bool) {
 	return ip, true
 }
 
-// FormatIPv4 converts a uint32 IP back to a dotted-decimal string.
 func FormatIPv4(ip uint32) string {
 	return fmt.Sprintf("%d.%d.%d.%d",
 		ip>>24,

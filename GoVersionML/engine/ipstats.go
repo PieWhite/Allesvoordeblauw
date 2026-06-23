@@ -1,7 +1,10 @@
+// ipstats.go defines per-IP traffic statistics accumulated within a time
+// window. It uses a hybrid slice/map strategy for unique value tracking:
+// small cardinalities use linear scans on slices, promoting to maps at a
+// threshold of 16 elements for O(1) lookups.
 package engine
 
 import (
-	"math"
 	"sync"
 	"time"
 )
@@ -20,7 +23,6 @@ type IPStats struct {
 	IP        uint32
 	FlowCount int
 
-	// Inline first element to avoid slice backing array allocation on heap
 	HasFirstDstIP   bool
 	FirstDstIP      uint32
 	UniqueDstIPs    []uint32
@@ -316,105 +318,6 @@ func (s *IPStats) AddTargetStartTime(tKey TargetKey, first time.Time) {
 	s.UpdateIAT(0)
 }
 
-// FillMLVector populates features slice (must be length 21) with final ML features.
-func (s *IPStats) FillMLVector(features []float64) {
-	_ = features[20] // Bounds check elimination
-
-	fc := float64(s.FlowCount)
-	if fc == 0 {
-		for i := 0; i < 21; i++ {
-			features[i] = 0
-		}
-		return
-	}
-
-	portSymmetry := s.calculatePortSymmetry()
-	iatMean, iatVar, iatCV := s.calculateIATMetrics()
-
-	uniquePorts := float64(s.NumUniqueDstPorts())
-	if uniquePorts == 0 {
-		uniquePorts = 1
-	}
-
-	totalPackets := s.TotalPackets
-	if totalPackets == 0 {
-		totalPackets = 1
-	}
-
-	pctWellKnownPorts := (s.WellKnownPortCount / fc) * 100.0
-
-	features[0] = fc
-	features[1] = float64(s.NumUniqueDstIPs())
-	features[2] = float64(s.NumUniqueDstPorts())
-	features[3] = s.TotalBytes
-	features[4] = s.TotalPackets
-	features[5] = s.TotalBytes / fc
-	features[6] = s.TotalPackets / fc
-	features[7] = (s.TCPCount / fc) * 100.0
-	features[8] = (s.UDPCount / fc) * 100.0
-	features[9] = (s.ICMPCount / fc) * 100.0
-	features[10] = pctWellKnownPorts
-	features[11] = 100.0 - pctWellKnownPorts
-	features[12] = s.SumDurationSec / fc
-	features[13] = iatMean
-	features[14] = iatVar
-	features[15] = portSymmetry
-	features[16] = float64(s.NumUniqueDstIPs()) / uniquePorts
-	features[17] = s.TotalBytes / totalPackets
-	features[18] = (s.SynOnlyCount / fc) * 100.0
-	features[19] = (s.RstCount / fc) * 100.0
-	features[20] = iatCV
-}
-
-func (s *IPStats) ToMLVector() []float64 {
-	vec := make([]float64, 21)
-	s.FillMLVector(vec)
-	return vec
-}
-
-func (s *IPStats) calculatePortSymmetry() float64 {
-	var symmetry float64
-
-	hasInbound := func(p int) bool {
-		if s.HasFirstInbound && s.FirstInboundPort == p {
-			return true
-		}
-		if s.InboundDstPortsMap != nil {
-			_, exists := s.InboundDstPortsMap[p]
-			return exists
-		}
-		for _, port := range s.InboundDstPorts {
-			if port == p {
-				return true
-			}
-		}
-		return false
-	}
-
-	if s.HasFirstDstPort && hasInbound(s.FirstDstPort) {
-		symmetry++
-	}
-
-	for _, p := range s.UniqueDstPorts {
-		if hasInbound(p) {
-			symmetry++
-		}
-	}
-
-	return symmetry
-}
-
-func (s *IPStats) calculateIATMetrics() (mean float64, variance float64, cv float64) {
-	mean = s.IatMean
-	if s.IatCount > 1 {
-		variance = s.IatM2 / (s.IatCount - 1)
-	}
-	if mean > 0 {
-		cv = math.Sqrt(variance) / mean
-	}
-	return mean, variance, cv
-}
-
 func (s *IPStats) Merge(other *IPStats) {
 	s.FlowCount += other.FlowCount
 	s.TotalBytes += other.TotalBytes
@@ -427,7 +330,6 @@ func (s *IPStats) Merge(other *IPStats) {
 	s.WellKnownPortCount += other.WellKnownPortCount
 	s.SumDurationSec += other.SumDurationSec
 
-	// Merge unique destination IPs
 	if other.HasFirstDstIP {
 		s.AddUniqueDstIP(other.FirstDstIP)
 	}
@@ -435,7 +337,6 @@ func (s *IPStats) Merge(other *IPStats) {
 		s.AddUniqueDstIP(ip)
 	}
 
-	// Merge unique destination ports
 	if other.HasFirstDstPort {
 		s.AddUniqueDstPort(other.FirstDstPort)
 	}
@@ -443,7 +344,6 @@ func (s *IPStats) Merge(other *IPStats) {
 		s.AddUniqueDstPort(p)
 	}
 
-	// Merge inbound dst ports
 	if other.HasFirstInbound {
 		s.AddInboundDstPort(other.FirstInboundPort)
 	}
@@ -451,7 +351,6 @@ func (s *IPStats) Merge(other *IPStats) {
 		s.AddInboundDstPort(p)
 	}
 
-	// Merge IAT (Inter-Arrival Time) statistics using Chan's parallel variance formula
 	if other.IatCount > 0 {
 		if s.IatCount == 0 {
 			s.IatCount = other.IatCount
@@ -467,4 +366,3 @@ func (s *IPStats) Merge(other *IPStats) {
 		}
 	}
 }
-

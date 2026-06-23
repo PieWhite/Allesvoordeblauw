@@ -1,3 +1,6 @@
+// aggregator.go implements sharded, concurrent accumulation of Netflow records
+// into per-IP, per-window statistics buckets. It uses a fixed 64-shard hash map
+// to minimize lock contention during high-throughput parallel ingestion.
 package engine
 
 import (
@@ -38,9 +41,8 @@ func NewAggregator() *Aggregator {
 }
 
 func (a *Aggregator) getShardIndex(ip uint32) int {
-	// FNV-1a inspired hash for uint32 — fast and well-distributed
-	h := ip * 2654435761 // Knuth's multiplicative hash
-	return int(h >> 26)  // top 6 bits → [0, 63]
+	h := ip * 2654435761
+	return int(h >> 26)
 }
 
 func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
@@ -52,7 +54,7 @@ func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
 		minute := int(s[14]-'0')*10 + int(s[15]-'0')
 		second := int(s[17]-'0')*10 + int(s[18]-'0')
 		msec := int(s[20]-'0')*100 + int(s[21]-'0')*10 + int(s[22]-'0')
-		
+
 		sec := fastUnixTime(year, month, day, hour, minute, second)
 		return time.Unix(sec, int64(msec)*1000000).UTC(), true
 	}
@@ -68,7 +70,7 @@ func (a *Aggregator) parseTimestamp(s string) (time.Time, bool) {
 		if len(s) >= 23 && s[19] == '.' {
 			msec = int(s[20]-'0')*100 + int(s[21]-'0')*10 + int(s[22]-'0')
 		}
-		
+
 		sec := fastUnixTime(year, month, day, hour, minute, second)
 		return time.Unix(sec, int64(msec)*1000000).UTC(), true
 	}
@@ -147,7 +149,6 @@ func (a *Aggregator) Update(record models.NetflowRecord) {
 	}
 }
 
-// AllIPStats safely collects all IPStats across shards
 func (a *Aggregator) AllIPStats() []*IPStats {
 	var all []*IPStats
 	for i := 0; i < numShards; i++ {
@@ -210,7 +211,6 @@ func (a *Aggregator) updateTimingMetrics(s *IPStats, record models.NetflowRecord
 	}
 }
 
-// ExtractAndFlushBefore removes and returns all IPStats from windows older than the specified timestamp
 func (a *Aggregator) ExtractAndFlushBefore(window int64) []*IPStats {
 	var flushed []*IPStats
 	for i := 0; i < numShards; i++ {
@@ -228,7 +228,6 @@ func (a *Aggregator) ExtractAndFlushBefore(window int64) []*IPStats {
 	return flushed
 }
 
-// FlushAll removes and returns all IPStats currently in the aggregator, leaving it completely empty.
 func (a *Aggregator) FlushAll() []*IPStats {
 	var flushed []*IPStats
 	for i := 0; i < numShards; i++ {
@@ -273,4 +272,3 @@ func (a *Aggregator) Merge(other *Aggregator) {
 		otherShard.Unlock()
 	}
 }
-

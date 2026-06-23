@@ -1,3 +1,5 @@
+// window_manager_test.go verifies time-window flushing behavior under both
+// assume-ordered and strict-EOF flush policies.
 package engine
 
 import (
@@ -9,7 +11,6 @@ import (
 func TestNetflowWindowManager_AssumeOrdered(t *testing.T) {
 	wm := NewNetflowWindowManager(WindowFlushPolicy{Mode: WindowFlushAssumeOrdered})
 
-	// 1. Process records within a window: T = 12:00 (1673524800)
 	t0 := "2023-01-12T12:00:00.000"
 	rec1 := models.NetflowRecord{
 		First:    t0,
@@ -23,9 +24,6 @@ func TestNetflowWindowManager_AssumeOrdered(t *testing.T) {
 		t.Errorf("expected no flushed stats, got %d", len(flushed1))
 	}
 
-	// 2. Process records at T = 12:11 (1673525460)
-	// This advances maxWindow to 12:10 (1673525400).
-	// Window before maxWindow - 300 (12:10 - 300 = 12:05) should be flushed (which includes 12:00 window).
 	t1 := "2023-01-12T12:11:00.000"
 	rec2 := models.NetflowRecord{
 		First:    t1,
@@ -41,7 +39,6 @@ func TestNetflowWindowManager_AssumeOrdered(t *testing.T) {
 		t.Errorf("expected flushed stats to include 1.2.3.4")
 	}
 
-	// 3. Flush final remaining stats (12:10 window)
 	flushedFinal := wm.FlushFinal()
 	if len(flushedFinal) != 2 {
 		t.Errorf("expected 2 final flushed stats, got %d", len(flushedFinal))
@@ -51,7 +48,6 @@ func TestNetflowWindowManager_AssumeOrdered(t *testing.T) {
 func TestNetflowWindowManager_StrictEOF(t *testing.T) {
 	wm := NewNetflowWindowManager(WindowFlushPolicy{Mode: WindowFlushStrictEOF})
 
-	// Process records in different windows
 	rec1 := models.NetflowRecord{
 		First:    "2023-01-12T12:00:00.000",
 		Last:     "2023-01-12T12:00:00.000",
@@ -68,7 +64,6 @@ func TestNetflowWindowManager_StrictEOF(t *testing.T) {
 		t.Errorf("expected 0 flushed stats during StrictEOF processing, got %d", len(flushed))
 	}
 
-	// FlushFinal must extract everything
 	flushedFinal := wm.FlushFinal()
 	if len(flushedFinal) != 2 {
 		t.Errorf("expected 2 flushed stats at EOF, got %d", len(flushedFinal))

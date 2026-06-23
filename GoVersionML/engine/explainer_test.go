@@ -1,3 +1,5 @@
+// explainer_test.go verifies XGBoost tree-path feature contribution analysis
+// and human-readable explanation formatting across Netflow and PCAP feature sets.
 package engine
 
 import (
@@ -10,9 +12,6 @@ func floatPtr(val float64) *float64 {
 }
 
 func TestExplainer_ExplainAndFormat(t *testing.T) {
-	// A simple mock tree:
-	// If f0 < 10.0: Leaf = 1.0 (Yes)
-	// Else: Leaf = 2.0 (No)
 	tree := ModelNode{
 		NodeID:         0,
 		Split:          "f0",
@@ -36,7 +35,7 @@ func TestExplainer_ExplainAndFormat(t *testing.T) {
 	}
 
 	t.Run("Valid features going left (Yes)", func(t *testing.T) {
-		features := []float64{5.0} // f0 = 5.0, length is 1
+		features := []float64{5.0}
 		contributions := explainer.Explain(features)
 
 		if len(contributions) != 1 {
@@ -59,7 +58,7 @@ func TestExplainer_ExplainAndFormat(t *testing.T) {
 	})
 
 	t.Run("Valid features going right (No)", func(t *testing.T) {
-		features := []float64{15.0} // f0 = 15.0
+		features := []float64{15.0}
 		contributions := explainer.Explain(features)
 
 		if len(contributions) != 1 {
@@ -71,8 +70,6 @@ func TestExplainer_ExplainAndFormat(t *testing.T) {
 	})
 
 	t.Run("Shorter feature slice (Out of Bounds)", func(t *testing.T) {
-		// Empty features slice: length is 0. Accessing f0 would normally panic.
-		// Now it should return early safely with no contributions.
 		var emptyFeatures []float64
 		contributions := explainer.Explain(emptyFeatures)
 		if len(contributions) != 0 {
@@ -88,7 +85,6 @@ func TestExplainer_ExplainAndFormat(t *testing.T) {
 
 func TestExplainer_InvalidSplitOrEdgeCases(t *testing.T) {
 	t.Run("Invalid Split Format", func(t *testing.T) {
-		// If split format is not 'f%d', Sscanf should fail and return early.
 		tree := ModelNode{
 			NodeID:         0,
 			Split:          "invalid_split_format",
@@ -104,7 +100,6 @@ func TestExplainer_InvalidSplitOrEdgeCases(t *testing.T) {
 		explainer := &Explainer{Trees: []ModelNode{tree}}
 		features := []float64{5.0, 6.0}
 
-		// Should not panic, should return 0 contributions
 		contributions := explainer.Explain(features)
 		if len(contributions) != 0 {
 			t.Errorf("expected 0 contributions, got %d", len(contributions))
@@ -127,7 +122,6 @@ func TestExplainer_InvalidSplitOrEdgeCases(t *testing.T) {
 		explainer := &Explainer{Trees: []ModelNode{tree}}
 		features := []float64{5.0, 6.0}
 
-		// Should not panic, should return 0 contributions
 		contributions := explainer.Explain(features)
 		if len(contributions) != 0 {
 			t.Errorf("expected 0 contributions, got %d", len(contributions))
@@ -135,7 +129,6 @@ func TestExplainer_InvalidSplitOrEdgeCases(t *testing.T) {
 	})
 
 	t.Run("Index exceeds length of features", func(t *testing.T) {
-		// Tree checks f10, but features slice only has length 2
 		tree := ModelNode{
 			NodeID:         0,
 			Split:          "f10",
@@ -151,7 +144,6 @@ func TestExplainer_InvalidSplitOrEdgeCases(t *testing.T) {
 		explainer := &Explainer{Trees: []ModelNode{tree}}
 		features := []float64{5.0, 6.0}
 
-		// Should not panic, should return 0 contributions
 		contributions := explainer.Explain(features)
 		if len(contributions) != 0 {
 			t.Errorf("expected 0 contributions, got %d", len(contributions))
@@ -160,12 +152,6 @@ func TestExplainer_InvalidSplitOrEdgeCases(t *testing.T) {
 }
 
 func TestExplainer_FormatExplanation_Types(t *testing.T) {
-	// Let's create a tree that has multiple splits to accumulate contributions for different features.
-	// Feature index 0: flow_count
-	// Feature index 3: total_bytes
-	// Feature index 7: pct_tcp
-	// Feature index 12: avg_duration
-
 	trees := []ModelNode{
 		{
 			NodeID:         0,
@@ -208,18 +194,12 @@ func TestExplainer_FormatExplanation_Types(t *testing.T) {
 	explainer := &Explainer{Trees: trees}
 
 	features := make([]float64, 21)
-	features[0] = 120.0   // flow_count (should format as "120")
-	features[3] = 1536.0  // total_bytes (should format as "1.5KB")
-	features[7] = 85.5    // pct_tcp (should format as "85.5%")
-	features[12] = 0.0456 // avg_duration (should format as "0.046s")
+	features[0] = 120.0
+	features[3] = 1536.0
+	features[7] = 85.5
+	features[12] = 0.0456
 
 	explanation := explainer.FormatExplanation(features)
-
-	// Since contributions are sorted descending:
-	// f7 (pct_tcp) has contribution 10.0
-	// f3 (total_bytes) has contribution 5.0
-	// f12 (avg_duration) has contribution 2.0
-	// f0 (flow_count) has contribution 1.0
 
 	if !strings.Contains(explanation, "pct_tcp (85.5%)") {
 		t.Errorf("expected pct_tcp percentage formatting, got: %s", explanation)
@@ -235,7 +215,6 @@ func TestExplainer_FormatExplanation_Types(t *testing.T) {
 	}
 
 	t.Run("Total bytes edge cases", func(t *testing.T) {
-		// Test MB and B formatting
 		bytesMBTree := []ModelNode{
 			{
 				NodeID:         0,
@@ -250,7 +229,6 @@ func TestExplainer_FormatExplanation_Types(t *testing.T) {
 
 		expMB := &Explainer{Trees: bytesMBTree}
 
-		// 2.5 MB
 		featsMB := make([]float64, 21)
 		featsMB[3] = 2.5 * 1024 * 1024
 		explMB := expMB.FormatExplanation(featsMB)
@@ -258,7 +236,6 @@ func TestExplainer_FormatExplanation_Types(t *testing.T) {
 			t.Errorf("expected total_bytes formatting in MB, got: %s", explMB)
 		}
 
-		// 256 B
 		featsB := make([]float64, 21)
 		featsB[3] = 256.0
 		explB := expMB.FormatExplanation(featsB)
@@ -269,7 +246,6 @@ func TestExplainer_FormatExplanation_Types(t *testing.T) {
 }
 
 func TestExplainer_FormatExplanation_EmptyContributions(t *testing.T) {
-	// Trees that output 0 leaf values or has no trees at all
 	explainer := &Explainer{
 		Trees: []ModelNode{},
 	}
@@ -282,8 +258,6 @@ func TestExplainer_FormatExplanation_EmptyContributions(t *testing.T) {
 }
 
 func TestExplainer_WeightedAverage(t *testing.T) {
-	// A tree where a leaf value is reached via multiple features
-	// Both f0 and f1 should split, sharing the leaf weight
 	tree := ModelNode{
 		NodeID:         0,
 		Split:          "f0",
@@ -306,10 +280,9 @@ func TestExplainer_WeightedAverage(t *testing.T) {
 	}
 
 	explainer := &Explainer{Trees: []ModelNode{tree}}
-	features := []float64{4.0, 3.0} // both go Yes
+	features := []float64{4.0, 3.0}
 	contributions := explainer.Explain(features)
 
-	// Since we traverse f0 and f1, the contribution weight is split: 6.0 / 2 = 3.0 each
 	if len(contributions) != 2 {
 		t.Fatalf("expected 2 contributions, got %d", len(contributions))
 	}
@@ -322,14 +295,6 @@ func TestExplainer_WeightedAverage(t *testing.T) {
 }
 
 func TestExplainer_PCAPFormatting(t *testing.T) {
-	// Let's create a tree with PCAP features
-	// Index 0: Header_Length (B formatting)
-	// Index 2: Rate (pps formatting)
-	// Index 3: fin_flag_number (proportion/percentage formatting)
-	// Index 10: syn_count (integer formatting)
-	// Index 29: Tot sum (byte KB/MB/B formatting)
-	// Index 35: IAT (time/seconds formatting)
-	// Index 38: Protocol Type (protocol translation: e.g. 6.0 -> TCP)
 	trees := []ModelNode{
 		{
 			NodeID:         0,
@@ -402,25 +367,15 @@ func TestExplainer_PCAPFormatting(t *testing.T) {
 	}
 
 	features := make([]float64, 39)
-	features[0] = 54.2                // Header_Length -> should show "54.2B"
-	features[2] = 2304.5              // Rate -> should show "2304.5 pps"
-	features[3] = 0.4578              // fin_flag_number -> ratio between 0 and 1, should show "45.8%"
-	features[10] = 120.0              // syn_count -> should show "120"
-	features[29] = 10.5 * 1024 * 1024 // Tot sum -> should show "10.5MB"
-	features[35] = 0.00456            // IAT -> should show "0.005s"
-	features[38] = 6.0                // Protocol Type -> should translate to "TCP"
+	features[0] = 54.2
+	features[2] = 2304.5
+	features[3] = 0.4578
+	features[10] = 120.0
+	features[29] = 10.5 * 1024 * 1024
+	features[35] = 0.00456
+	features[38] = 6.0
 
 	explanation := explainer.FormatExplanation(features)
-
-	// Sort order is based on contribution weight:
-	// f38 (Protocol Type) -> 7.0
-	// f35 (IAT) -> 6.0
-	// f29 (Tot sum) -> 5.0
-	// f10 (syn_count) -> 4.0
-	// f3 (fin_flag_number) -> 3.0
-	// f2 (Rate) -> 2.0
-	// f0 (Header_Length) -> 1.0
-	// Explainer shows top 4 features (limit 4).
 
 	if !strings.Contains(explanation, "Protocol Type (TCP)") {
 		t.Errorf("expected Protocol Type TCP formatting, got: %s", explanation)
@@ -435,7 +390,6 @@ func TestExplainer_PCAPFormatting(t *testing.T) {
 		t.Errorf("expected syn_count formatting, got: %s", explanation)
 	}
 
-	// Verify limit works and lower contribution ones aren't in explanation
 	if strings.Contains(explanation, "Header_Length") {
 		t.Errorf("expected Header_Length to be excluded due to top 4 limit, got: %s", explanation)
 	}

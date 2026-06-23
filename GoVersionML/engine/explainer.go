@@ -1,3 +1,6 @@
+// explainer.go implements tree-path-based feature contribution analysis for
+// XGBoost models. It traces decision paths through the model's JSON tree dump
+// and distributes leaf values across the features encountered along each path.
 package engine
 
 import (
@@ -6,74 +9,6 @@ import (
 	"os"
 	"sort"
 )
-
-// FeatureNames maps index f0 through f20 back to their human-readable names.
-var FeatureNames = []string{
-	"flow_count",             // f0
-	"unique_dst_ips",         // f1
-	"unique_dst_ports",       // f2
-	"total_bytes",            // f3
-	"total_packets",          // f4
-	"avg_bytes_per_flow",     // f5
-	"avg_packets_per_flow",   // f6
-	"pct_tcp",                // f7
-	"pct_udp",                // f8
-	"pct_icmp",               // f9
-	"pct_well_known_ports",   // f10
-	"pct_high_ports",         // f11
-	"avg_duration",           // f12
-	"iat_mean",               // f13
-	"iat_variance",           // f14
-	"port_symmetry",          // f15
-	"ip_port_ratio",          // f16
-	"avg_payload_per_packet", // f17
-	"pct_syn_only",           // f18
-	"pct_rst",                // f19
-	"iat_cv",                 // f20
-}
-
-// PcapFeatureNames maps index f0 through f38 back to their PCAP human-readable names.
-var PcapFeatureNames = []string{
-	"Header_Length",   // f0
-	"Time_To_Live",    // f1
-	"Rate",            // f2
-	"fin_flag_number", // f3
-	"syn_flag_number", // f4
-	"rst_flag_number", // f5
-	"psh_flag_number", // f6
-	"ack_flag_number", // f7
-	"ece_flag_number", // f8
-	"cwr_flag_number", // f9
-	"syn_count",       // f10
-	"ack_count",       // f11
-	"fin_count",       // f12
-	"rst_count",       // f13
-	"IGMP",            // f14
-	"HTTPS",           // f15
-	"HTTP",            // f16
-	"Telnet",          // f17
-	"DNS",             // f18
-	"SMTP",            // f19
-	"SSH",             // f20
-	"IRC",             // f21
-	"TCP",             // f22
-	"UDP",             // f23
-	"DHCP",            // f24
-	"ARP",             // f25
-	"ICMP",            // f26
-	"IPv",             // f27
-	"LLC",             // f28
-	"Tot sum",         // f29
-	"Min",             // f30
-	"Max",             // f31
-	"AVG",             // f32
-	"Std",             // f33
-	"Tot size",        // f34
-	"IAT",             // f35
-	"Number",          // f36
-	"Variance",        // f37
-	"Protocol Type",   // f38
-}
 
 type ModelNode struct {
 	NodeID         int         `json:"nodeid"`

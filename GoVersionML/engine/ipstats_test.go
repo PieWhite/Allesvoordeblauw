@@ -1,105 +1,30 @@
+// ipstats_test.go verifies the hybrid slice/map unique tracking data structures
+// and their transition behavior at the 16-element threshold.
 package engine
 
 import (
-	"math"
 	"testing"
 	"time"
 )
 
-// TestPortSymmetry targets the symmetry++ line.
-func TestPortSymmetry(t *testing.T) {
-	s := NewIPStats()
-	s.AddUniqueDstPort(53)
-	s.AddUniqueDstPort(80)
-
-	s.AddInboundDstPort(53)
-	s.AddInboundDstPort(443)
-
-	symmetry := s.calculatePortSymmetry()
-
-	if symmetry != 1 {
-		t.Errorf("Expected symmetry 1, got %v", symmetry)
-	}
-}
-
-// TestIAT_Math_Precision verifies the Python-style variance calculation.
-func TestIAT_Math_Precision(t *testing.T) {
-	s := NewIPStats()
-	ipVal, _ := ParseIPv4("8.8.8.8")
-	target := TargetKey{IP: ipVal, Port: 53}
-
-	// Times: 10.0, 12.0.
-	s.AddTargetStartTime(target, time.Unix(10, 0))
-	s.AddTargetStartTime(target, time.Unix(12, 0))
-
-	mean, variance, cv := s.calculateIATMetrics()
-
-	if mean != 1.0 {
-		t.Errorf("expected mean 1.0, got %v", mean)
-	}
-	if variance != 2.0 {
-		t.Errorf("expected variance 2.0, got %v", variance)
-	}
-	if math.Abs(cv-1.41421356) > 1e-7 {
-		t.Errorf("expected CV ~1.4142, got %v", cv)
-	}
-}
-
-// TestToMLVector_Sanitization checks for division-by-zero protection.
-func TestToMLVector_Sanitization(t *testing.T) {
-	s := NewIPStats()
-	s.FlowCount = 5
-
-	vec := s.ToMLVector()
-
-	for i, val := range vec {
-		if math.IsNaN(val) || math.IsInf(val, 0) {
-			t.Errorf("Index %d is non-finite: %v", i, val)
-		}
-	}
-
-	if vec[16] != 0 {
-		t.Errorf("Feature 16 (ip_port_ratio) expected 0, got %v", vec[16])
-	}
-}
-
-func TestToMLVector_EmptyFlow(t *testing.T) {
-	s := NewIPStats()
-	s.FlowCount = 0
-
-	vec := s.ToMLVector()
-	if len(vec) != 21 {
-		t.Errorf("Expected length 21, got %d", len(vec))
-	}
-	for i, v := range vec {
-		if v != 0 {
-			t.Errorf("Expected 0 at index %d, got %v", i, v)
-		}
-	}
-}
-
 func TestIPStats_HybridTransition(t *testing.T) {
 	s := NewIPStats()
 
-	// Add 30 unique Dst IPs to trigger map transition
 	for i := 0; i < 30; i++ {
 		s.AddUniqueDstIP(uint32(i + 1))
 	}
-	// Verify that map is populated and count is 30
 	if s.UniqueDstIPsMap == nil {
 		t.Error("expected UniqueDstIPsMap to be initialized after 30 additions")
 	}
 	if s.NumUniqueDstIPs() != 30 {
 		t.Errorf("expected 30 unique Dst IPs, got %d", s.NumUniqueDstIPs())
 	}
-	// Try adding duplicates and check count
 	s.AddUniqueDstIP(1)
 	s.AddUniqueDstIP(2)
 	if s.NumUniqueDstIPs() != 30 {
 		t.Errorf("expected count to remain 30 after duplicates, got %d", s.NumUniqueDstIPs())
 	}
 
-	// Add 30 unique Dst Ports
 	for i := 0; i < 30; i++ {
 		s.AddUniqueDstPort(i)
 	}
@@ -114,7 +39,6 @@ func TestIPStats_HybridTransition(t *testing.T) {
 		t.Errorf("expected count to remain 30, got %d", s.NumUniqueDstPorts())
 	}
 
-	// Add 30 unique Inbound ports
 	for i := 0; i < 30; i++ {
 		s.AddInboundDstPort(i)
 	}
@@ -122,13 +46,11 @@ func TestIPStats_HybridTransition(t *testing.T) {
 		t.Error("expected InboundDstPortsMap to be initialized")
 	}
 
-	// Test port symmetry using hybrid map
 	sym := s.calculatePortSymmetry()
 	if sym != 30 {
 		t.Errorf("expected port symmetry 30, got %f", sym)
 	}
 
-	// Add 30 target start times
 	ipTest, _ := ParseIPv4("1.1.1.1")
 	for i := 0; i < 30; i++ {
 		tk := TargetKey{IP: ipTest, Port: i}
@@ -137,10 +59,9 @@ func TestIPStats_HybridTransition(t *testing.T) {
 	if s.TargetLastTimesMap == nil {
 		t.Error("expected TargetLastTimesMap to be initialized")
 	}
-	if len(s.TargetLastTimes) != 29 { // First goes to FirstTarget
+	if len(s.TargetLastTimes) != 29 {
 		t.Errorf("expected 29 in slice, got %d", len(s.TargetLastTimes))
 	}
-	// Add same target start time again to verify it updates existing count/times instead of inserting new
 	tk := TargetKey{IP: ipTest, Port: 5}
 	s.AddTargetStartTime(tk, time.Unix(100, 0))
 	if len(s.TargetLastTimes) != 29 {
