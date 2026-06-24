@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"goversion/config"
 	"goversion/models"
 )
 
@@ -25,8 +26,8 @@ func (m *mockPcapProcessor) ProcessPcapRecords(records []models.PcapRecord) {
 	m.total += int64(len(records))
 }
 
-func (m *mockPcapProcessor) CalculateResults() []models.MLResult {
-	return m.results
+func (m *mockPcapProcessor) CalculateResults() ([]models.MLResult, int) {
+	return m.results, len(m.results)
 }
 
 func (m *mockPcapProcessor) TotalCount() int64 {
@@ -127,14 +128,16 @@ func TestAnalyzePcapFile(t *testing.T) {
 	}
 
 	t.Run("InvalidModelPath", func(t *testing.T) {
-		_, _, err := AnalyzePcapFile("dummy.pcap", "invalid/path/to/model.json", mockScanner)
+		cfg := &config.AppConfig{InputPath: "dummy.pcap"}
+		_, _, _, err := AnalyzePcapFile(cfg, "invalid/path/to/model.json", mockScanner)
 		if err == nil {
 			t.Fatalf("expected error for invalid model path, got nil")
 		}
 	})
 
 	t.Run("InvalidInputPath", func(t *testing.T) {
-		_, _, err := AnalyzePcapFile("nonexistent_input.pcap", validModel, mockScanner)
+		cfg := &config.AppConfig{InputPath: "nonexistent_input.pcap"}
+		_, _, _, err := AnalyzePcapFile(cfg, validModel, mockScanner)
 		if err == nil {
 			t.Fatalf("expected error for missing input file, got nil")
 		}
@@ -151,7 +154,8 @@ func TestAnalyzePcapFile(t *testing.T) {
 		defer os.Remove(tempFile.Name())
 		tempFile.Close()
 
-		_, _, err = AnalyzePcapFile(tempFile.Name(), validModel, mockScanner)
+		cfg := &config.AppConfig{InputPath: tempFile.Name()}
+		_, _, _, err = AnalyzePcapFile(cfg, validModel, mockScanner)
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
